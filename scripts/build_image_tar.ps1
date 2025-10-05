@@ -6,13 +6,22 @@ Param(
     [int]$Keep = 10,
     [string]$CopyToShare = "\\MEDIASERVER\Downloads\dockerconfig\personal-tracking\container_files",
     [switch]$SkipSave,
-    [switch]$SkipShare
+    [switch]$SkipShare,
+    [int]$ShareRetries = 3,
+    [int]$ShareRetryDelaySeconds = 4
 )
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
 
+# Allow environment override for share path
+if ($env:PT_SHARE_PATH -and -not $SkipShare) {
+    $CopyToShare = $env:PT_SHARE_PATH
+    Write-Host "[hook] Using share path override from PT_SHARE_PATH: $CopyToShare"
+}
+
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$fullTag = "$ImageName:$Tag"
+# Use braces to avoid scope-like parsing ($ImageName:$Tag would be invalid)
+$fullTag = "${ImageName}:$Tag"
 $tarFile = Join-Path $OutDir "$ImageName-$Tag-$timestamp.tar"
 
 Write-Host "[hook] Building image $fullTag (MultiArch=$($MultiArch.IsPresent))"
@@ -27,9 +36,11 @@ if ($MultiArch) {
     } else {
         docker buildx use $builderName | Out-Null
     }
-    docker buildx build --platform linux/amd64,linux/arm64 -t $fullTag --load . || exit 1
+    docker buildx build --platform linux/amd64,linux/arm64 -t $fullTag --load .
+    if ($LASTEXITCODE -ne 0) { Write-Error "docker buildx failed"; exit 1 }
 } else {
-    docker build -t $fullTag . || exit 1
+    docker build -t $fullTag .
+    if ($LASTEXITCODE -ne 0) { Write-Error "docker build failed"; exit 1 }
 }
 
 # Show resulting image digest (if available)
@@ -40,7 +51,8 @@ try {
 
 if (-not $SkipSave) {
     Write-Host "[hook] Saving image to $tarFile"
-    docker save -o $tarFile $fullTag || exit 1
+    docker save -o $tarFile $fullTag
+    if ($LASTEXITCODE -ne 0) { Write-Error "docker save failed"; exit 1 }
 
     # Maintain latest copy
     $latestFile = Join-Path $OutDir "$ImageName-latest.tar"
@@ -61,19 +73,34 @@ if (-not $SkipSave) {
     }
 
     if (-not $SkipShare -and $CopyToShare) {
-        try {
-            if (-not (Test-Path $CopyToShare)) {
-                Write-Warning "[hook] Network share path not found: $CopyToShare (skipping copy)"
-            } else {
-                $shareName = Split-Path $tarFile -Leaf
-                $destTar = Join-Path $CopyToShare $shareName
-                $destLatest = Join-Path $CopyToShare (Split-Path $latestFile -Leaf)
-                Copy-Item $tarFile $destTar -Force
-                Copy-Item $latestFile $destLatest -Force
-                Write-Host "[hook] Copied image tar to $destTar and updated $destLatest"
+        # Attempt to create directory (will fail silently on permissions)
+        if (-not (Test-Path $CopyToShare)) {
+            try {
+                New-Item -ItemType Directory -Path $CopyToShare -Force | Out-Null
+                Write-Host "[hook] Created share directory: $CopyToShare"
+            } catch { Write-Warning "[hook] Could not create share directory: $CopyToShare - $($_.Exception.Message)" }
+        }
+        if (-not (Test-Path $CopyToShare)) {
+            Write-Warning "[hook] Share path still not accessible: $CopyToShare (skipping copy)"
+        } else {
+            $shareName = Split-Path $tarFile -Leaf
+            $destTar = Join-Path $CopyToShare $shareName
+            $destLatest = Join-Path $CopyToShare (Split-Path $latestFile -Leaf)
+            $attempt = 0
+            $success = $false
+            while (-not $success -and $attempt -lt $ShareRetries) {
+                $attempt++
+                try {
+                    Copy-Item $tarFile $destTar -Force
+                    Copy-Item $latestFile $destLatest -Force
+                    Write-Host "[hook] Copied image tar to $destTar and updated $destLatest (attempt $attempt)"
+                    $success = $true
+                } catch {
+                    Write-Warning "[hook] Copy attempt $attempt failed: $($_.Exception.Message)"
+                    if ($attempt -lt $ShareRetries) { Start-Sleep -Seconds $ShareRetryDelaySeconds }
+                }
             }
-        } catch {
-            Write-Warning "[hook] Failed to copy tar to share: $($_.Exception.Message)"
+            if (-not $success) { Write-Warning "[hook] All copy attempts failed ($ShareRetries attempts)." }
         }
     }
 } else {
