@@ -69,12 +69,27 @@ Enable it:
 git config core.hooksPath .githooks
 ```
 
-After each commit you will see a `dist/personal-tracking-<tag>-<timestamp>.tar` plus `personal-tracking-latest.tar` (copy of the most recent build). The tag includes the short commit hash (e.g. `commit-a1b2c3d`).
+After each non-doc commit you will see a `dist/personal-tracking-<tag>-<timestamp>.tar` plus `personal-tracking-latest.tar` (copy of the most recent build). The tag includes the short commit hash (e.g. `commit-a1b2c3d`). Markdown / docs-only commits are skipped to save time.
+
+Hook environments / overrides:
+
+| Mechanism | Effect |
+|-----------|--------|
+| `PT_SKIP_TAR=1` | Skip build for that commit |
+| `-Keep <n>` (hook param) | Retain only last n tars (default 10) |
+| `-MultiArch` | Build multi-arch image (linux/amd64,linux/arm64) |
+| `-VerboseHook` | Extra verbose logging |
+
+Old tars beyond retention are pruned (excluding the `*-latest.tar` file).
 
 Manually trigger (without new commit):
 
-```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag manual
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag manual -Keep 5
+# Multi-arch example (requires buildx)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag ma -MultiArch
+# Build image only (no tar export)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag nosave -SkipSave
 ```
 
 Transfer to a server and load there:
@@ -108,10 +123,28 @@ app/
 data/            # Seed CSV files
 ```
 
+## CI Image Artifact Workflow
+
+A GitHub Actions workflow (`.github/workflows/docker-image-tar.yml`) builds and uploads a gzipped Docker image tar on pushes to `main` / `master` and manual dispatch.
+
+What it does:
+
+1. Builds image (`latest` and short SHA tags). Multi-arch optional via workflow dispatch input `multi_arch=true`.
+2. Exports `personal-tracking-<sha>.tar.gz` and a `.sha256` checksum file.
+3. Captures `image-id.json` (Docker image ID metadata).
+4. Attempts SBOM generation (SPDX JSON) via syft.
+5. Uploads artifacts with 14-day retention.
+
+Download artifacts from the workflow run page, then:
+
+```bash
+docker load -i personal-tracking-<sha>.tar.gz
+```
+
 ## Notes / Next Steps
 
 - Add authentication/authorization for multi-user deployments
 - Add edit/delete activity capability
 - Add API endpoints (JSON) for potential frontend expansion
-- Add tests and CI workflow
+- Add tests and CI workflow (expand test coverage)
 - Support exporting reports (CSV/PDF)

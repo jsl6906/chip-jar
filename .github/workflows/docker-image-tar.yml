@@ -3,16 +3,24 @@ name: build-docker-image-tar
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      multi_arch:
+        description: "Build multi-arch image (linux/amd64,linux/arm64)?"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
   packages: read
   actions: read
+  id-token: write
 
 jobs:
   build-and-export:
     runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: personal-tracking
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,23 +33,66 @@ jobs:
         run: |
           echo "sha_short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
           echo "build_date=$(date -u +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+          echo "multi_arch_input=${{ github.event.inputs.multi_arch }}" >> $GITHUB_OUTPUT
 
-      - name: Build image (local load)
+      - name: Decide platforms
+        id: platform
         run: |
-          docker build -t personal-tracking:latest -t personal-tracking:${{ steps.vars.outputs.sha_short }} .
+          if [ "${{ steps.vars.outputs.multi_arch_input }}" = "true" ]; then
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
+          else
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Save image tar
+      - name: Build image (load or output)
+        id: build
         run: |
-          docker save personal-tracking:latest | gzip > personal-tracking-${{ steps.vars.outputs.sha_short }}.tar.gz
+          if [ "${{ steps.platform.outputs.platforms }}" = "linux/amd64,linux/arm64" ]; then
+            docker buildx build \
+              --platform ${{ steps.platform.outputs.platforms }} \
+              -t $IMAGE_NAME:latest \
+              -t $IMAGE_NAME:${{ steps.vars.outputs.sha_short }} \
+              --provenance=false \
+              --load .
+          else
+            docker build \
+              -t $IMAGE_NAME:latest \
+              -t $IMAGE_NAME:${{ steps.vars.outputs.sha_short }} .
+          fi
 
-      - name: Upload artifact
+          docker image inspect $IMAGE_NAME:latest --format '{{json .Id}}' > image-id.json
+
+      - name: Save image tar (gzip)
+        run: |
+          docker save $IMAGE_NAME:latest | gzip > $IMAGE_NAME-${{ steps.vars.outputs.sha_short }}.tar.gz
+          sha256sum $IMAGE_NAME-${{ steps.vars.outputs.sha_short }}.tar.gz > $IMAGE_NAME-${{ steps.vars.outputs.sha_short }}.tar.gz.sha256
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-            name: personal-tracking-image-${{ steps.vars.outputs.sha_short }}
-            path: personal-tracking-${{ steps.vars.outputs.sha_short }}.tar.gz
-            retention-days: 7
+          name: ${{ env.IMAGE_NAME }}-image-${{ steps.vars.outputs.sha_short }}
+          path: |
+            ${{ env.IMAGE_NAME }}-${{ steps.vars.outputs.sha_short }}.tar.gz
+            ${{ env.IMAGE_NAME }}-${{ steps.vars.outputs.sha_short }}.tar.gz.sha256
+            image-id.json
+          retention-days: 14
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action/download-syft@v0.16.0
+      - run: syft packages dir:. -o spdx-json=sbom-${{ steps.vars.outputs.sha_short }}.spdx.json || echo "SBOM generation skipped"
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_NAME }}-sbom-${{ steps.vars.outputs.sha_short }}
+          path: sbom-${{ steps.vars.outputs.sha_short }}.spdx.json
+          retention-days: 14
 
       - name: Summary
         run: |
           echo "Image tags: latest, ${{ steps.vars.outputs.sha_short }}" >> $GITHUB_STEP_SUMMARY
-          echo "Artifact: personal-tracking-${{ steps.vars.outputs.sha_short }}.tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "Platforms: ${{ steps.platform.outputs.platforms }}" >> $GITHUB_STEP_SUMMARY
+          echo "Tar: $IMAGE_NAME-${{ steps.vars.outputs.sha_short }}.tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "Checksum: $IMAGE_NAME-${{ steps.vars.outputs.sha_short }}.tar.gz.sha256" >> $GITHUB_STEP_SUMMARY
+          echo "SBOM: sbom-${{ steps.vars.outputs.sha_short }}.spdx.json" >> $GITHUB_STEP_SUMMARY
