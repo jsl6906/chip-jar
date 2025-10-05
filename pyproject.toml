@@ -1,0 +1,21 @@
+[project]
+name = "personal-tracking"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+	"fastapi",
+	"uvicorn[standard]",
+	"duckdb",
+	"jinja2",
+	"python-multipart",
+	"python-dateutil"
+	,"tzdata"
+]
+
+[project.scripts]
+personal-tracking = "app.web:run"
+
+[tool.uv]
+dev-dependencies = []

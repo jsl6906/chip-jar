@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card add-activity">
+  <h2>Add Activity</h2>
+  {% if added and not request.query_params.get('error') %}
+  <div class="flash success" id="flashMsg">
+    {% set cat = request.query_params.get('cat') %}
+    {% set act = request.query_params.get('act') %}
+    {% set pts = request.query_params.get('pts') %}
+    {% set ts = request.query_params.get('ts') %}
+    {% if act %}
+      {% if pts %}
+        Recorded {{ cat }}: <strong>{{ act }}</strong>
+        {% if pts|int > 0 %}+{% endif %}{{ pts }} point{{ 's' if pts|int != 1 else '' }}
+        {% if ts %}<span style="opacity:.7;">at {{ ts }}</span>{% endif %}.
+      {% else %}
+        Recorded {{ cat }}: <strong>{{ act }}</strong>{% if ts %} <span style="opacity:.7;">at {{ ts }}</span>{% endif %}.
+      {% endif %}
+    {% else %}
+      Activity recorded successfully.
+    {% endif %}
+  </div>
+  {% elif request.query_params.get('error') == 'insufficient' %}
+  <div class="flash error" id="flashMsg" style="animation:none;">Not enough incentive points for that deduction.</div>
+  {% endif %}
+  <form method="post" action="/activity" class="activity-form">
+    <div class="inline-grid">
+      <label><span class="lbl">Member</span>
+        <select name="household_member_id" required>
+          {% for id, name in members %}
+          <option value="{{ id }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label><span class="lbl">Category</span>
+        <select name="category" id="category" required onchange="toggleCategory()">
+          <option value="incentive">Incentive</option>
+          <option value="medication">Medication</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <div id="incentiveOptions">
+        <label><span class="lbl">Incentive</span>
+          <select name="activity_type" id="incentiveSelect" data-cat="incentive">
+            {% for name, description, points in incentives %}
+            <option value="{{ name }}">{{ name }} ({{ points }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div id="medicationOptions" style="display:none;">
+        <label><span class="lbl">Medication</span>
+          <select name="activity_type" id="medicationSelect" data-cat="medication">
+            {% for name, description, dose in medications %}
+            <option value="{{ name }}">{{ name }} (dose {{ dose }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div id="otherOptions" style="display:none;">
+        <label><span class="lbl">Desc</span>
+          <input type="text" name="activity_type" id="otherInput" placeholder="Describe activity" data-cat="other" />
+        </label>
+        <label><span class="lbl">Amount</span>
+          <input type="number" name="amount" id="amountInput" />
+        </label>
+      </div>
+    </div>
+    <button type="button" class="toggle-adv" onclick="toggleAdvanced()" aria-expanded="false" id="advToggle">Show advanced ▾</button>
+    <div class="advanced-fields" id="advancedFields">
+      <div class="inline-grid">
+        <label><span class="lbl">When</span>
+          <input type="datetime-local" name="when" id="whenInput" />
+        </label>
+        <label><span class="lbl">Notes</span>
+          <input type="text" name="notes" />
+        </label>
+      </div>
+    </div>
+    <button type="submit">Add</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Reports</h2>
+  <ul>
+    {% for id, name in members %}
+    <li>
+      {{ name }}:
+      <a href="/report/incentives/{{ id }}">Incentives ({{ incentive_totals[id] if incentive_totals and id in incentive_totals else 0 }})</a> |
+      <a href="/report/medications/{{ id }}">Medications</a> |
+      <a href="/report/other/{{ id }}">Other</a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+<script>
+function toggleCategory(){
+  const cat = document.getElementById('category').value;
+  document.getElementById('incentiveOptions').style.display = cat==='incentive' ? '' : 'none';
+  document.getElementById('medicationOptions').style.display = cat==='medication' ? '' : 'none';
+  document.getElementById('otherOptions').style.display = cat==='other' ? '' : 'none';
+  // Disable non-active activity_type inputs so only one submits
+  const incentiveSel = document.getElementById('incentiveSelect');
+  const medicationSel = document.getElementById('medicationSelect');
+  const otherInput = document.getElementById('otherInput');
+  incentiveSel.disabled = cat !== 'incentive';
+  medicationSel.disabled = cat !== 'medication';
+  otherInput.disabled = cat !== 'other';
+  // Amount only relevant for 'other'; clear and disable when not other
+  const amountInput = document.getElementById('amountInput');
+  if(cat !== 'other'){
+    amountInput.value='';
+    amountInput.disabled = true;
+  } else {
+    amountInput.disabled = false;
+  }
+}
+// initialize state on load
+toggleCategory();
+// Prefill datetime-local with current local time (truncate seconds for simplicity)
+(function(){
+  const inp = document.getElementById('whenInput');
+  if(!inp) return;
+  const d = new Date();
+  d.setSeconds(0,0);
+  const pad = n=> String(n).padStart(2,'0');
+  const val = d.getFullYear()+ '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  inp.value = val;
+})();
+function toggleAdvanced(){
+  const container = document.getElementById('advancedFields');
+  const btn = document.getElementById('advToggle');
+  const visible = container.classList.toggle('visible');
+  btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+  btn.textContent = visible ? 'Hide advanced ▴' : 'Show advanced ▾';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,11 @@
+name,description,points
+Kindness & Respect,"Plays with sister, shows respect to parents, etc.",1
+Follows Directions,"Follows directions the first time, stops & listens, turns off screens",1
+Minor Responsibility,"Morning / Night responsibilities, Doesn't disturb family in morning, etc.", 1
+Major Responsibility,"Quiet Time, Weekly Shower (2x), Weekly room cleaning, Homework", 2
+Three Count,"Behavior requiring a 3 count",-1
+Quick Reward,"15 minutes game / show", -1
+Sleepover,"Gameover / Sleepover", -5
+Money,"$10 for comic book shop / toys, etc.", -10
+Big Reward, "Unlock normal activities", -50
+New Game, "New switch game / minecoins", -75

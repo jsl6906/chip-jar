@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+<h2 style="margin-top:0;">Other Activity Report</h2>
+<form method="get" action="/report/other/{{ member_id }}" style="margin-bottom:.5rem;">
+  <label>Member:
+    <select name="member_id" onchange="if(this.value){window.location='/report/other/'+this.value+'?limit='+document.getElementById('limit').value}">
+      {% for id, name in members %}
+      <option value="{{ id }}" {% if id==member_id %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Limit:
+    <select name="limit" id="limit" onchange="window.location='/report/other/{{ member_id }}?limit='+this.value">
+      <option value="25" {% if limit==25 %}selected{% endif %}>25</option>
+      <option value="50" {% if limit==50 %}selected{% endif %}>50</option>
+      <option value="100" {% if limit==100 %}selected{% endif %}>100</option>
+      <option value="250" {% if limit==250 %}selected{% endif %}>250</option>
+    </select>
+  </label>
+</form>
+<p style="font-size:.8rem; color:var(--text-light); margin:.5rem 0 1rem;">Entries: <strong>{{ count }}</strong>{% if total %} | Sum Amount: <strong>{{ total|fmt_signed }}</strong>{% endif %}</p>
+<table>
+  <thead><tr><th>Timestamp (EST)</th><th>Description</th><th>Amount</th><th>Notes</th></tr></thead>
+  <tbody>
+  {% for ts, activity_type, amount, notes in rows %}
+    <tr title="{{ notes }}">
+      <td>{{ ts|fmt_ts }}</td>
+  <td>{{ activity_type }}{% if notes %}<span class="sub-desc">({{ notes }})</span>{% endif %}</td>
+      <td>{{ amount|fmt_signed }}</td>
+      <td>{{ notes }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="mt-md"><a href="/" style="text-decoration:none;color:var(--primary);font-weight:600;">← Back</a></div>
+</div>
+{% endblock %}
