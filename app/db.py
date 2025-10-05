@@ -95,27 +95,116 @@ def seed_from_csv(con: duckdb.DuckDBPyConnection):
             return primary
         fallback = pkg_data_dir / name
         return fallback
-    # household members
-    if table_empty(con, "household_member"):
-        # Support legacy CSV that might still include a dob column; select only name.
-        # read_csv_auto will infer columns; we project name explicitly.
+    # Helper functions to sync CSV content (add new + update changed attributes) without deleting existing rows.
+    def sync_household():
+        # If empty, fast path insert to assign contiguous ids.
+        if table_empty(con, "household_member"):
+            con.execute(f"""--sql
+                INSERT INTO household_member(id, name)
+                SELECT row_number() OVER () as id, name
+                FROM read_csv_auto('{csv_path('household_member.csv')}', HEADER=TRUE)
+            """)
+            return
+        # Otherwise only insert new names (no attributes beyond name to update).
         con.execute(f"""--sql
+            CREATE TEMPORARY TABLE tmp_hh AS
+            SELECT DISTINCT src.name AS name
+            FROM read_csv_auto('{csv_path('household_member.csv')}', HEADER=TRUE) AS src;
+        """)
+        # Insert new names assigning new ids after current max.
+        con.execute("""--sql
+            WITH max_id AS (SELECT COALESCE(MAX(id),0) AS m FROM household_member),
+                 new_rows AS (
+                     SELECT t.name AS name, ROW_NUMBER() OVER (ORDER BY t.name) AS rn
+                     FROM tmp_hh t
+                     LEFT JOIN household_member h ON h.name = t.name
+                     WHERE h.name IS NULL
+                 )
             INSERT INTO household_member(id, name)
-            SELECT row_number() OVER () as id, name
-            FROM read_csv_auto('{csv_path('household_member.csv')}', HEADER=TRUE)
+            SELECT max_id.m + rn, name FROM new_rows CROSS JOIN max_id;
         """)
-    if table_empty(con, "incentives"):
+        con.execute("DROP TABLE IF EXISTS tmp_hh")
+
+    def sync_incentives():
+        if table_empty(con, "incentives"):
+            con.execute(f"""--sql
+                INSERT INTO incentives(id, name, description, points)
+                SELECT row_number() OVER () as id, name, description, TRY_CAST(points AS INTEGER)
+                FROM read_csv_auto('{csv_path('incentives.csv')}', HEADER=TRUE)
+            """)
+            return
         con.execute(f"""--sql
+            CREATE TEMPORARY TABLE tmp_incentive AS
+            SELECT name, description, TRY_CAST(points AS INTEGER) AS points
+            FROM read_csv_auto('{csv_path('incentives.csv')}', HEADER=TRUE);
+        """)
+        # Update changed rows
+        con.execute("""--sql
+            UPDATE incentives AS i
+            SET description = t.description,
+                points = t.points
+            FROM tmp_incentive t
+            WHERE i.name = t.name
+              AND (coalesce(i.description,'') <> coalesce(t.description,'') OR i.points <> t.points);
+        """)
+        # Insert new rows
+        con.execute("""--sql
+            WITH max_id AS (SELECT COALESCE(MAX(id),0) AS m FROM incentives),
+                 to_insert AS (
+                   SELECT t.name, t.description, t.points,
+                          ROW_NUMBER() OVER (ORDER BY t.name) AS rn
+                   FROM tmp_incentive t
+                   LEFT JOIN incentives i ON i.name = t.name
+                   WHERE i.name IS NULL
+                 )
             INSERT INTO incentives(id, name, description, points)
-            SELECT row_number() OVER () as id, name, description, TRY_CAST(points AS INTEGER)
-            FROM read_csv_auto('{csv_path('incentives.csv')}', HEADER=TRUE)
+            SELECT max_id.m + rn, name, description, points
+            FROM to_insert CROSS JOIN max_id;
         """)
-    if table_empty(con, "medications"):
+        con.execute("DROP TABLE IF EXISTS tmp_incentive")
+
+    def sync_medications():
+        if table_empty(con, "medications"):
+            con.execute(f"""--sql
+                INSERT INTO medications(id, name, description, dose)
+                SELECT row_number() OVER () as id, name, description, TRY_CAST(dose AS INTEGER)
+                FROM read_csv_auto('{csv_path('medications.csv')}', HEADER=TRUE)
+            """)
+            return
         con.execute(f"""--sql
-            INSERT INTO medications(id, name, description, dose)
-            SELECT row_number() OVER () as id, name, description, TRY_CAST(dose AS INTEGER)
-            FROM read_csv_auto('{csv_path('medications.csv')}', HEADER=TRUE)
+            CREATE TEMPORARY TABLE tmp_med AS
+            SELECT name, description, TRY_CAST(dose AS INTEGER) AS dose
+            FROM read_csv_auto('{csv_path('medications.csv')}', HEADER=TRUE);
         """)
+        # Update changed rows
+        con.execute("""--sql
+            UPDATE medications AS m
+            SET description = t.description,
+                dose = t.dose
+            FROM tmp_med t
+            WHERE m.name = t.name
+              AND (coalesce(m.description,'') <> coalesce(t.description,'') OR m.dose <> t.dose);
+        """)
+        # Insert new rows
+        con.execute("""--sql
+            WITH max_id AS (SELECT COALESCE(MAX(id),0) AS m FROM medications),
+                 to_insert AS (
+                   SELECT t.name, t.description, t.dose,
+                          ROW_NUMBER() OVER (ORDER BY t.name) AS rn
+                   FROM tmp_med t
+                   LEFT JOIN medications m ON m.name = t.name
+                   WHERE m.name IS NULL
+                 )
+            INSERT INTO medications(id, name, description, dose)
+            SELECT max_id.m + rn, name, description, dose
+            FROM to_insert CROSS JOIN max_id;
+        """)
+        con.execute("DROP TABLE IF EXISTS tmp_med")
+
+    # Execute syncs
+    sync_household()
+    sync_incentives()
+    sync_medications()
 
 
 def add_activity(household_member_id: int, category: str, activity_type: str, amount: Optional[int], notes: Optional[str] = None, ts: Optional[datetime] = None):

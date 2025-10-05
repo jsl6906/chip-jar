@@ -21,7 +21,7 @@
     {% endif %}
   </div>
   {% elif request.query_params.get('error') == 'insufficient' %}
-  <div class="flash error" id="flashMsg" style="animation:none;">Not enough incentive points for that deduction.</div>
+  <div class="flash error" id="flashMsg" style="animation:none;">Not enough chip points for that deduction.</div>
   {% endif %}
   <form method="post" action="/activity" class="activity-form">
     <div class="inline-grid">
@@ -34,13 +34,13 @@
       </label>
       <label><span class="lbl">Category</span>
         <select name="category" id="category" required onchange="toggleCategory()">
-          <option value="incentive">Incentive</option>
+          <option value="incentive">Chips</option>
           <option value="medication">Medication</option>
           <option value="other">Other</option>
         </select>
       </label>
       <div id="incentiveOptions">
-        <label><span class="lbl">Incentive</span>
+        <label><span class="lbl">Chips</span>
           <select name="activity_type" id="incentiveSelect" data-cat="incentive">
             {% for name, description, points in incentives %}
             <option value="{{ name }}">{{ name }} ({{ points }})</option>
@@ -86,7 +86,7 @@
     {% for id, name in members %}
     <li>
       {{ name }}:
-      <a href="/report/incentives/{{ id }}">Incentives ({{ incentive_totals[id] if incentive_totals and id in incentive_totals else 0 }})</a> |
+  <a href="/report/incentives/{{ id }}">Chips ({{ incentive_totals[id] if incentive_totals and id in incentive_totals else 0 }})</a> |
       <a href="/report/medications/{{ id }}">Medications</a> |
       <a href="/report/other/{{ id }}">Other</a>
     </li>

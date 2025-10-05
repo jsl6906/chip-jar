@@ -1,8 +1,9 @@
 name,description,points
-Kindness & Respect,"Plays with sister, shows respect to parents, etc.",1
-Follows Directions,"Follows directions the first time, stops & listens, turns off screens",1
-Minor Responsibility,"Morning / Night responsibilities, Doesn't disturb family in morning, etc.", 1
-Major Responsibility,"Quiet Time, Weekly Shower (2x), Weekly room cleaning, Homework", 2
+1-chip-reward,"Earn 1 chip",1
+2-chip-reward,"Earn 2 chips",2
+3-chip-reward,"Earn 3 chips",3
+5-chip-reward,"Earn 5 chips",5
+10-chip-reward,"Earn 10 chips",10
 Three Count,"Behavior requiring a 3 count",-1
 Quick Reward,"15 minutes game / show", -1
 Sleepover,"Gameover / Sleepover", -5

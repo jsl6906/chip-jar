@@ -1,12 +1,12 @@
 # Personal Tracking Application
 
-Basic family tracking app for incentives (points) and medications using DuckDB + FastAPI.
+Basic family tracking app for chips (points) and medications using DuckDB + FastAPI.
 
 ## Features
 
 - Manage household members (seeded via CSV)
-- Log incentive, medication, or other activities
-- View incentive history and running total
+- Log chip, medication, or other activities
+- View chips history and running total
 - View medication counts weekly or monthly
 
 ## Tech Stack

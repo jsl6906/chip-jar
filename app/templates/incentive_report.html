@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="card">
-  <h2 style="margin-top:0;">Incentive Report</h2>
+  <h2 style="margin-top:0;">Chips Report</h2>
   <form method="get" action="/report/incentives/{{ member_id }}">
     <label>Member:
       <select name="member_id" onchange="if(this.value){window.location='/report/incentives/'+this.value}">
@@ -13,7 +13,7 @@
   </form>
   <p style="font-size:.9rem; color:var(--text-light); margin:.5rem 0 0;">Current Total Points: <strong style="font-size:1.1rem; color:var(--primary);">{{ total }}</strong></p>
 
-  <table class="incentive-table" aria-label="Incentive history with running totals">
+  <table class="incentive-table" aria-label="Chips history with running totals">
     <thead>
       <tr>
         <th style="width: 22%;">Timestamp</th>
