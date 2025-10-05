@@ -1,0 +1,22 @@
+#!/bin/sh
+# Wrapper to invoke the PowerShell post-commit hook.
+# Git requires the hook filename to be exactly 'post-commit' (no extension).
+# This wrapper calls the existing PowerShell script so we keep logic in one place.
+
+HOOK_DIR="$(dirname "$0")"
+PS_SCRIPT="$HOOK_DIR/post-commit.ps1"
+
+if [ ! -f "$PS_SCRIPT" ]; then
+  echo "[post-commit wrapper] Missing PowerShell script: $PS_SCRIPT" >&2
+  exit 0
+fi
+
+# Prefer pwsh (PowerShell 7+), fall back to Windows PowerShell if available under 'powershell'
+if command -v pwsh >/dev/null 2>&1; then
+  exec pwsh -NoProfile -ExecutionPolicy Bypass -File "$PS_SCRIPT"
+elif command -v powershell >/dev/null 2>&1; then
+  exec powershell -NoProfile -ExecutionPolicy Bypass -File "$PS_SCRIPT"
+else
+  echo "[post-commit wrapper] No PowerShell host (pwsh or powershell) found in PATH; skipping image build." >&2
+  exit 0
+fi
