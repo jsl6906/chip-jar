@@ -16,6 +16,3 @@ dependencies = [
 
 [project.scripts]
 personal-tracking = "app.web:run"
-
-[tool.uv]
-dev-dependencies = []

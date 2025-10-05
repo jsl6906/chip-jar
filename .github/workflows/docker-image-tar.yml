@@ -1,0 +1,47 @@
+name: build-docker-image-tar
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+jobs:
+  build-and-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set version vars
+        id: vars
+        run: |
+          echo "sha_short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "build_date=$(date -u +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Build image (local load)
+        run: |
+          docker build -t personal-tracking:latest -t personal-tracking:${{ steps.vars.outputs.sha_short }} .
+
+      - name: Save image tar
+        run: |
+          docker save personal-tracking:latest | gzip > personal-tracking-${{ steps.vars.outputs.sha_short }}.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+            name: personal-tracking-image-${{ steps.vars.outputs.sha_short }}
+            path: personal-tracking-${{ steps.vars.outputs.sha_short }}.tar.gz
+            retention-days: 7
+
+      - name: Summary
+        run: |
+          echo "Image tags: latest, ${{ steps.vars.outputs.sha_short }}" >> $GITHUB_STEP_SUMMARY
+          echo "Artifact: personal-tracking-${{ steps.vars.outputs.sha_short }}.tar.gz" >> $GITHUB_STEP_SUMMARY

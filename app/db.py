@@ -12,8 +12,7 @@ SCHEMA_STATEMENTS = [
     """--sql
     CREATE TABLE IF NOT EXISTS household_member (
         id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        dob DATE
+        name TEXT NOT NULL UNIQUE
     );
     """,
     """--sql
@@ -67,6 +66,13 @@ def init_db() -> None:
     con = connect()
     for stmt in SCHEMA_STATEMENTS:
         con.execute(stmt)
+    # Migration: drop obsolete dob column if present
+    try:
+        cols = con.execute("PRAGMA table_info('household_member')").fetchall()
+        if any(c[1] == 'dob' for c in cols):
+            con.execute("ALTER TABLE household_member DROP COLUMN dob")
+    except Exception:
+        pass
     # seed tables from CSV if empty
     seed_from_csv(con)
 
@@ -80,24 +86,35 @@ def table_empty(con: duckdb.DuckDBPyConnection, table: str) -> bool:
 
 def seed_from_csv(con: duckdb.DuckDBPyConnection):
     data_dir = get_data_dir()
+    pkg_data_dir = Path(__file__).resolve().parent.parent / "data"
+
+    def csv_path(name: str) -> Path:
+        # Prefer external / mounted data dir; fallback to packaged copy if missing
+        primary = data_dir / name
+        if primary.exists():
+            return primary
+        fallback = pkg_data_dir / name
+        return fallback
     # household members
     if table_empty(con, "household_member"):
+        # Support legacy CSV that might still include a dob column; select only name.
+        # read_csv_auto will infer columns; we project name explicitly.
         con.execute(f"""--sql
-            INSERT INTO household_member(id, name, dob)
-            SELECT row_number() OVER () as id, name, TRY_CAST(dob AS DATE)
-            FROM read_csv_auto('{data_dir / 'household_member.csv'}', HEADER=TRUE)
+            INSERT INTO household_member(id, name)
+            SELECT row_number() OVER () as id, name
+            FROM read_csv_auto('{csv_path('household_member.csv')}', HEADER=TRUE)
         """)
     if table_empty(con, "incentives"):
         con.execute(f"""--sql
             INSERT INTO incentives(id, name, description, points)
             SELECT row_number() OVER () as id, name, description, TRY_CAST(points AS INTEGER)
-            FROM read_csv_auto('{data_dir / 'incentives.csv'}', HEADER=TRUE)
+            FROM read_csv_auto('{csv_path('incentives.csv')}', HEADER=TRUE)
         """)
     if table_empty(con, "medications"):
         con.execute(f"""--sql
             INSERT INTO medications(id, name, description, dose)
             SELECT row_number() OVER () as id, name, description, TRY_CAST(dose AS INTEGER)
-            FROM read_csv_auto('{data_dir / 'medications.csv'}', HEADER=TRUE)
+            FROM read_csv_auto('{csv_path('medications.csv')}', HEADER=TRUE)
         """)
 
 

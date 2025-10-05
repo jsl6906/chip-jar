@@ -1,3 +1,6 @@
+# Image build artifacts
+dist/*.tar
+dist/*.tar.gz
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -8,3 +11,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data files
+*.duckdb
