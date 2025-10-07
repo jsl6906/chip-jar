@@ -8,15 +8,16 @@ services:
     environment:
       - DATA_DIR=/data
       - TZ=America/New_York
+      - PYTHONUNBUFFERED=1
     volumes:
       - /mnt/seagate_backup/dockerconfig/personal-tracking/data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport sys, urllib.request\ntry:\n    urllib.request.urlopen('http://localhost:8000/', timeout=3)\nexcept Exception as e:\n    sys.exit(1)\nPY"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 40s
     depends_on:
       wait_for_seagate_backup:
         condition: service_healthy

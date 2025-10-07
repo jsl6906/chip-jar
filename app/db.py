@@ -3,6 +3,9 @@ import duckdb
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR_ENV = "DATA_DIR"
 DEFAULT_DATA_DIR = Path("data")
@@ -63,8 +66,12 @@ def connect() -> duckdb.DuckDBPyConnection:
 
 
 def init_db() -> None:
+    logger.info(f"Initializing database at {get_db_path()}")
     con = connect()
-    for stmt in SCHEMA_STATEMENTS:
+    logger.info("Connected to database successfully")
+    
+    for i, stmt in enumerate(SCHEMA_STATEMENTS):
+        logger.debug(f"Executing schema statement {i+1}/{len(SCHEMA_STATEMENTS)}")
         con.execute(stmt)
     # Migration: drop obsolete dob column if present
     try:
@@ -74,7 +81,9 @@ def init_db() -> None:
     except Exception:
         pass
     # seed tables from CSV if empty
+    logger.info("Starting CSV data sync...")
     seed_from_csv(con)
+    logger.info("Database initialization complete")
 
 
 def table_empty(con: duckdb.DuckDBPyConnection, table: str) -> bool:

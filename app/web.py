@@ -1,9 +1,12 @@
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 from datetime import datetime
+import logging
+import sys
+import os
 try:
     from zoneinfo import ZoneInfo
 except Exception:  # pragma: no cover
@@ -11,9 +14,71 @@ except Exception:  # pragma: no cover
 
 from . import db
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('app.log', mode='a')
+    ]
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Personal Tracking")
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = datetime.utcnow()
+    client_ip = request.client.host if request.client else 'unknown'
+    logger.info(f"Request: {request.method} {request.url.path} from {client_ip}")
+    
+    try:
+        response = await call_next(request)
+        process_time = (datetime.utcnow() - start_time).total_seconds()
+        logger.info(f"Response: {response.status_code} for {request.method} {request.url.path} ({process_time:.3f}s)")
+        return response
+    except Exception as e:
+        process_time = (datetime.utcnow() - start_time).total_seconds()
+        logger.error(f"Request failed: {request.method} {request.url.path} after {process_time:.3f}s - {str(e)}")
+        raise
+
+# Log startup
+logger.info(f"FastAPI app starting - Python {sys.version}")
+logger.info(f"DATA_DIR: {os.environ.get('DATA_DIR', 'default')}")
+logger.info(f"RELOAD: {os.environ.get('RELOAD', '0')}")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker and monitoring"""
+    try:
+        # Test database connectivity
+        con = db.connect()
+        result = con.execute("SELECT COUNT(*) FROM household_member").fetchone()
+        member_count = result[0] if result else 0
+        
+        health_info = {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "database": "connected",
+            "members_count": member_count,
+            "version": "1.0.0"
+        }
+        logger.info(f"Health check passed: {health_info}")
+        return JSONResponse(content=health_info)
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "timestamp": datetime.utcnow().isoformat(),
+                "error": str(e)
+            }
+        )
 
 
 try:
@@ -139,22 +204,30 @@ async def add_activity(
 
 @app.get("/report/incentives/{member_id}", response_class=HTMLResponse)
 async def incentive_report(request: Request, member_id: int):
-    rows, total, prior_balance, prior_count = db.incentive_report(member_id)
-    members = db.list_household_members()
-    incentive_desc = {name: desc for (name, desc, pts) in db.list_incentives()}
-    return templates.TemplateResponse(
-        "incentive_report.html",
-        {
-            "request": request,
-            "rows": rows,
-            "total": total,
-            "prior_balance": prior_balance,
-            "prior_count": prior_count,
-            "member_id": member_id,
-            "members": members,
-            "incentive_desc": incentive_desc,
-        },
-    )
+    logger.info(f"Incentive report requested for member {member_id}")
+    try:
+        rows, total, prior_balance, prior_count = db.incentive_report(member_id)
+        members = db.list_household_members()
+        
+        logger.debug(f"Incentive report: {len(rows)} rows, total={total}, prior={prior_balance}")
+        
+        incentive_desc = {name: desc for (name, desc, pts) in db.list_incentives()}
+        return templates.TemplateResponse(
+            "incentive_report.html",
+            {
+                "request": request,
+                "rows": rows,
+                "total": total,
+                "prior_balance": prior_balance,
+                "prior_count": prior_count,
+                "member_id": member_id,
+                "members": members,
+                "incentive_desc": incentive_desc,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error generating incentive report for member {member_id}: {str(e)}")
+        raise
 
 @app.get("/report/medications/{member_id}", response_class=HTMLResponse)
 async def medication_report(request: Request, member_id: int, period: str = "week"):
