@@ -32,7 +32,9 @@ try {
 } catch {
     Write-Warning "[post-commit] Docker not found or not running - skipping image build"
     exit 0
-}function Write-Detail($msg) { if ($VerboseHook) { Write-Host "[post-commit] $msg" } }
+}
+
+function Write-Detail($msg) { if ($VerboseHook) { Write-Host "[post-commit] $msg" } }
 
 # Quick changed files list to optionally skip docs-only commits
 $changed = git diff-tree --no-commit-id --name-only -r HEAD 2>$null | Sort-Object
