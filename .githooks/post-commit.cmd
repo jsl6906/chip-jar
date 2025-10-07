@@ -33,6 +33,15 @@ if %ERRORLEVEL%==0 (
 
 if NOT %STATUS%==0 (
   echo [post-commit wrapper] PowerShell script failed (exit %STATUS%). Attempting minimal fallback build. >> %LOG_FILE%
+  
+  REM Check if Docker is available before attempting fallback
+  docker version --format "{{.Server.Version}}" >NUL 2>&1
+  if NOT %ERRORLEVEL%==0 (
+    echo [post-commit wrapper] Docker daemon not available - skipping fallback build. >> %LOG_FILE%
+    echo [post-commit wrapper] Hint: Start Docker Desktop and try again. >> %LOG_FILE%
+    goto :FINISH
+  )
+  
   where docker >NUL 2>&1
   if %ERRORLEVEL%==0 (
     for /f %%I in ('git rev-parse --short HEAD 2^>NUL') do set SHORT_SHA=%%I
@@ -46,9 +55,11 @@ if NOT %STATUS%==0 (
     ) || echo [post-commit wrapper] Fallback docker build failed >> %LOG_FILE%
   ) else (
     echo [post-commit wrapper] Docker not available for fallback. >> %LOG_FILE%
+    echo [post-commit wrapper] Hint: Install Docker Desktop and ensure it's running. >> %LOG_FILE%
   )
 )
 
+:FINISH
 echo [%DATE% %TIME%] wrapper end status=%STATUS% >> %LOG_FILE%
 ENDLOCAL
 exit /B 0

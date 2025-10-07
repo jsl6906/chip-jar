@@ -19,6 +19,18 @@ if ($env:PT_SHARE_PATH -and -not $SkipShare) {
     Write-Host "[hook] Using share path override from PT_SHARE_PATH: $CopyToShare"
 }
 
+# Check Docker availability early
+try {
+    docker version --format '{{.Server.Version}}' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "[hook] Docker daemon not available. Please start Docker Desktop."
+        exit 1
+    }
+} catch {
+    Write-Error "[hook] Docker not found. Please install Docker Desktop and add to PATH."
+    exit 1
+}
+
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 # Use braces to avoid scope-like parsing ($ImageName:$Tag would be invalid)
 $fullTag = "${ImageName}:$Tag"

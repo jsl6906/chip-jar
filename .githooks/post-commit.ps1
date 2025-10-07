@@ -1,10 +1,10 @@
 #!/usr/bin/env pwsh
-<#!
+<#
  Local git hook to auto-build docker image tar after each commit.
  To enable:
    git config core.hooksPath .githooks
  Adjust variables below as needed.
-!>
+#>
 
 Param(
   [string]$ImageName = "personal-tracking",
@@ -19,10 +19,20 @@ $ErrorActionPreference = 'Stop'
 
 # Allow opt-out via env var
 if ($env:PT_SKIP_TAR -eq '1') {
-  Write-Host "[post-commit] PT_SKIP_TAR=1 -> skipping image build"; exit 0
+    Write-Host "[post-commit] PT_SKIP_TAR=1 -> skipping image build"; exit 0
 }
 
-function Write-Detail($msg) { if ($VerboseHook) { Write-Host "[post-commit] $msg" } }
+# Check if Docker is available
+try {
+    docker version --format '{{.Server.Version}}' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "[post-commit] Docker daemon not available - skipping image build"
+        exit 0
+    }
+} catch {
+    Write-Warning "[post-commit] Docker not found or not running - skipping image build"
+    exit 0
+}function Write-Detail($msg) { if ($VerboseHook) { Write-Host "[post-commit] $msg" } }
 
 # Quick changed files list to optionally skip docs-only commits
 $changed = git diff-tree --no-commit-id --name-only -r HEAD 2>$null | Sort-Object
