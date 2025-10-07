@@ -1,6 +1,6 @@
 # Personal Tracking Application
 
-Basic family tracking app for chips (points) and medications using DuckDB + FastAPI.
+Basic family tracking app for chips (points) using DuckDB + FastAPI.
 
 ## Features
 
