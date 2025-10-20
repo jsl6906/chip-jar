@@ -87,17 +87,47 @@ except Exception:  # Zone not found
     _EASTERN = None
 
 
-def _fmt_ts(value: datetime):
+def _fmt_ts(value: datetime, fmt: Optional[str] = None):
+    """Format a datetime value into Eastern Time (America/New_York).
+
+    - If `fmt` is provided, use it as the strftime format string. Otherwise use
+      the default "%Y-%m-%d %I:%M:%S %p".
+    - If zoneinfo/ZoneInfo is unavailable or the Eastern zone is not found,
+      fall back to showing the naive/UTC time (with a UTC marker when appropriate).
+    """
     if not value:
         return ""
-    # Assume stored timestamps are UTC; DuckDB returns naive timestamps treated as UTC.
-    if _EASTERN is None:
-        # Fallback: treat as UTC and just show with 'UTC'
-        return value.strftime("%Y-%m-%d %H:%M:%S UTC")
-    if value.tzinfo is None and ZoneInfo:
-        value = value.replace(tzinfo=ZoneInfo("UTC"))
-    local = value.astimezone(_EASTERN)
-    return local.strftime("%Y-%m-%d %I:%M:%S %p")
+    if fmt is None:
+        fmt = "%Y-%m-%d %I:%M:%S %p"
+
+    # Assume stored timestamps are UTC; DuckDB typically returns naive timestamps
+    # which we treat as UTC for conversion purposes.
+    try:
+        if _EASTERN is None:
+            # No Eastern zone available; show as UTC (append marker if not present)
+            try:
+                # If value is naive, treat as UTC for display
+                if value.tzinfo is None and ZoneInfo:
+                    value = value.replace(tzinfo=ZoneInfo("UTC"))
+            except Exception:
+                pass
+            # Append UTC marker when not explicitly included in format
+            formatted = value.strftime(fmt)
+            if "%Z" not in fmt and "UTC" not in formatted:
+                return f"{formatted} UTC"
+            return formatted
+
+        # Ensure value is timezone-aware in UTC so astimezone works predictably
+        if value.tzinfo is None and ZoneInfo:
+            value = value.replace(tzinfo=ZoneInfo("UTC"))
+        local = value.astimezone(_EASTERN)
+        return local.strftime(fmt)
+    except Exception:
+        # On any unexpected error, fall back to naive formatting
+        try:
+            return value.strftime(fmt)
+        except Exception:
+            return str(value)
 
 
 def _fmt_signed(value):
@@ -228,6 +258,27 @@ async def incentive_report(request: Request, member_id: int):
     except Exception as e:
         logger.error(f"Error generating incentive report for member {member_id}: {str(e)}")
         raise
+
+
+@app.post("/activity/delete")
+async def activity_delete(request: Request, activity_id: int = Form(...), member_id: Optional[int] = Form(None)):
+    """Delete activity by id and redirect back to the appropriate report page.
+
+    Expects form fields: activity_id, member_id (optional, for redirect back to member report)
+    """
+    try:
+        deleted = db.delete_activity(activity_id)
+        logger.info(f"Deleted activity {activity_id}, rows_deleted={deleted}")
+    except Exception as e:
+        logger.error(f"Failed to delete activity {activity_id}: {str(e)}")
+        # Continue to redirect back with error query param
+        if member_id:
+            return RedirectResponse(f"/report/incentives/{member_id}?deleted=0", status_code=303)
+        return RedirectResponse(f"/?deleted=0", status_code=303)
+
+    if member_id:
+        return RedirectResponse(f"/report/incentives/{member_id}?deleted=1", status_code=303)
+    return RedirectResponse("/?deleted=1", status_code=303)
 
 @app.get("/report/medications/{member_id}", response_class=HTMLResponse)
 async def medication_report(request: Request, member_id: int, period: str = "week"):

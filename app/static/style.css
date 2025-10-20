@@ -42,6 +42,9 @@ section > h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .0
 .card { background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.4rem; box-shadow: var(--shadow-sm); }
 .card + .card { margin-top: 1.25rem; }
 
+/* Give the Add Activity card a small left inset to match prior spacing */
+.card.add-activity { padding-left: 12px; }
+
 form { display: flex; flex-wrap: wrap; gap: 1rem 1.25rem; align-items: flex-end; margin-bottom: 0.75rem; }
 label { display: flex; flex-direction: column; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-light); gap: .35rem; }
 label select, label input[type=text], label input[type=number], label input[type=datetime-local] {
@@ -57,8 +60,8 @@ button:focus { outline: none; box-shadow: var(--focus-ring); }
 
 /* Table styling */
 table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); background: var(--bg-alt); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
-thead th { background: #eff4fb; color: var(--text-light); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .06em; padding: 0.65rem .75rem; text-align: left; border-bottom: 1px solid var(--border); }
-tbody td { padding: 0.55rem .75rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+thead th { background: #eff4fb; color: var(--text-light); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .06em; padding: 0.05rem .45rem; text-align: left; border-bottom: 1px solid var(--border); }
+tbody td { padding: 0.05rem .45rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: #f1f5f9; }
 tbody tr td:nth-child(3), tbody tr td:nth-child(4) { font-family: ui-monospace, SFMono-Regular, SF Mono, Consolas, "Liberation Mono", monospace; }
@@ -82,7 +85,7 @@ tbody tr td:nth-child(3), tbody tr td:nth-child(4) { font-family: ui-monospace, 
 .amt-neg-7 { color: #7f1d1d; background: #dc2626; }
 .amt-neg-8 { color: #450a0a; background: #b91c1c; }
 
-.amt-cell { border-radius: 4px; padding: 0.25rem 0.4rem; display: inline-block; min-width: 3.2rem; text-align: right; font-weight: 600; }
+.amt-cell { border-radius: 4px; padding: 0.05rem 0.2rem; display: inline-block; min-width: 3.2rem; text-align: center; font-weight: 600; }
 
 /* Small inline description */
 .sub-desc { display:inline-block; font-size:.65rem; font-weight:500; color: var(--text-light); margin-left:.4rem; opacity:.85; }
@@ -99,6 +102,23 @@ tbody tr td:nth-child(3), tbody tr td:nth-child(4) { font-family: ui-monospace, 
 .mt-md { margin-top: 1rem; }
 .mt-lg { margin-top: 1.5rem; }
 
+/* Add Activity (desktop) - use CSS grid so fields distribute consistently */
+.add-activity form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem 1rem; align-items: end; }
+.add-activity .inline-grid { display: contents; }
+.add-activity label { margin-bottom: 0; }
+.add-activity label select,
+.add-activity label input { min-width: 0; width: 100%; }
+.add-activity .toggle-adv { grid-column: 1 / -1; align-self: start; justify-self: start; background: none; border: none; color: var(--primary); font-size: .85rem; font-weight: 600; cursor: pointer; }
+.add-activity .advanced-fields { grid-column: 1 / -1; display: block; }
+.add-activity button[type=submit] { grid-column: 1 / -1; justify-self: end; }
+
+/* Field input polish */
+.field-input { padding: .5rem .6rem; }
+.field-input:focus { box-shadow: var(--focus-ring); border-color: var(--primary); outline: none; }
+
+/* Ensure flash wraps nicely and doesn't push layout */
+.flash { word-break: break-word; }
+
 /* Responsive tweaks */
 @media (max-width: 720px) {
 	form { flex-direction: column; align-items: stretch; }
@@ -109,26 +129,58 @@ tbody tr td:nth-child(3), tbody tr td:nth-child(4) { font-family: ui-monospace, 
 
 /* Condensed mobile Add Activity layout */
 @media (max-width: 640px) {
-	.add-activity form { flex-direction: column; gap: .6rem; }
-	.add-activity form label { flex-direction: row; align-items: center; justify-content: space-between; text-transform: none; font-size: .75rem; letter-spacing: 0; }
-	.add-activity form label > span.lbl { font-weight: 600; color: var(--text-light); margin-right: .5rem; flex: 0 0 auto; }
-		.add-activity form label select,
-		.add-activity form label input { flex: 1 1 auto; min-width: 0; }
-		.add-activity form input[type=datetime-local] { font: inherit; }
-	.add-activity .inline-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: .5rem .6rem; }
+	/* Ensure the add-activity form becomes a vertical flex container on mobile
+	   so child option groups span the full width of the screen. */
+	.add-activity form { display: flex; flex-direction: column; gap: .6rem; }
+	/* Stack label text above inputs on mobile to avoid horizontal indent */
+	.add-activity form label { flex-direction: column; align-items: stretch; text-transform: none; font-size: .75rem; letter-spacing: 0; }
+	.add-activity form label > span.lbl { font-weight: 600; color: var(--text-light); margin: 0 0 .4rem 0; display: block; }
+	.add-activity form label select,
+	.add-activity form label input { flex: 1 1 auto; min-width: 0; }
+	.add-activity form input[type=datetime-local] { font: inherit; }
+	/* Treat the inline-grid wrapper as a regular block on mobile so its children
+	   (option groups and labels) can flow as full-width rows inside the form */
+	.add-activity .inline-grid { display: block; }
+	.add-activity .inline-grid > label { display: block; margin-bottom: .5rem; }
+	.add-activity .inline-grid > div { width: 100%; }
+
+	/* Ensure form fills the card width and labels align left */
+	.add-activity form { margin: 0; align-items: stretch; width: 100%; }
+	.add-activity label { margin: 0 0 .5rem 0; width: 100%; }
+	.add-activity .inline-grid > div label { margin: 0 0 .4rem 0; }
+	.add-activity input, .add-activity select, .add-activity button { margin: 0; }
 	.add-activity .advanced-fields { display: none; animation: fadeIn .25s ease; }
 	.add-activity .advanced-fields.visible { display: block; }
-	.add-activity .toggle-adv { background: none; border: none; color: var(--primary); padding: 0; font-size: .7rem; font-weight: 600; cursor: pointer; text-decoration: underline; margin-bottom: .25rem; }
+	.add-activity .toggle-adv { background: none; border: none; color: var(--primary); font-size: .7rem; font-weight: 600; cursor: pointer; text-decoration: underline; margin-bottom: .25rem; }
 	.add-activity .toggle-adv:focus { outline: none; text-decoration: none; }
 	.add-activity button[type=submit] { width: 100%; }
+	/* For mobile: keep the main grid but make option wrapper divs behave as two-column grids
+	   so Amount + Note sit side-by-side with spacing rather than fully stacked with no gap. */
+	/* Make the form very simple on mobile: list all fields sequentially so each
+	   value uses one full-width row (Member, Category, Amount, Note). */
+	.add-activity .inline-grid > div { display: block; width: 100%; }
+	.add-activity .inline-grid > div label { display: block; margin-bottom: .4rem; }
+	.add-activity .inline-grid > div input,
+	.add-activity .inline-grid > div select { width: 100%; }
+
+	/* Strong mobile left-align overrides to remove unexpected indentation */
+	.add-activity, .add-activity form, .add-activity .inline-grid, .add-activity label, .add-activity .field {
+		margin-left: 0 !important;
+		width: 100% !important;
+	}
+	.add-activity .lbl { display:block; margin-left:0 !important; }
+
+	/* Add a small natural inset so the form doesn't touch the card edge */
+	.add-activity { padding-left: 12px; padding-right: 12px; }
+	.add-activity form { padding-left: 0; padding-right: 0; }
 }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity:1; transform: translateY(0);} }
 
 /* Very small screen adjustments for incentive report */
 @media (max-width: 520px) {
-	.incentive-table tbody td { padding: 0.35rem .55rem; }
-	.incentive-table thead th { padding: 0.45rem .55rem; }
+	.incentive-table tbody td { padding: 0.05rem .55rem; }
+	.incentive-table thead th { padding: 0.05rem .55rem; }
 	.incentive-table .ts-col { font-size: .65rem; line-height: 1.1; }
 	.incentive-table { margin-top: .4rem; margin-bottom: .4rem; }
 }
@@ -137,6 +189,20 @@ tbody tr td:nth-child(3), tbody tr td:nth-child(4) { font-family: ui-monospace, 
 @media (min-width: 641px) {
 	#advToggle { display: none !important; }
 	#advancedFields { display: block !important; }
+
+	/* Make option wrapper divs transparent to the grid so their child labels
+	   sit directly in the form grid (Amount + Note can be side-by-side) */
+	.add-activity .inline-grid > div { display: contents; }
+
+	/* When JS hides an options div via inline style display:none keep it hidden */
+	.add-activity #incentiveOptions[style*="display:none"],
+	.add-activity #medicationOptions[style*="display:none"],
+	.add-activity #otherOptions[style*="display:none"] { display: none !important; }
+}
+
+/* Wide screens: ensure four columns so Member | Category | Amount | Note fit on one row */
+@media (min-width: 1024px) {
+	.add-activity form { grid-template-columns: repeat(4, minmax(160px, 1fr)); }
 }
 
 footer { max-width: 1100px; margin: 0 auto 2rem; padding: 0 1.25rem; font-size: 0.7rem; color: var(--text-light); }

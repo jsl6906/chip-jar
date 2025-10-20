@@ -312,17 +312,30 @@ def incentive_report(household_member_id: int, limit: int = 50):
 
     # Compute slice sum & running totals
     slice_sum = 0
-    processed = []  # (ts, activity_type, amount, notes, running_total)
+    processed = []  # (id, ts, activity_type, amount, notes, running_total)
     for row in limited_rows:
         _id, ts, activity_type, amount, notes, cum_from_newest = row
         amt_val = amount if amount is not None else 0
         slice_sum += amt_val
         running_total = total_all - (cum_from_newest - amt_val)
-        processed.append((ts, activity_type, amount, notes, running_total))
+        processed.append((_id, ts, activity_type, amount, notes, running_total))
 
     prior_balance = total_all - slice_sum
     prior_count = max(total_count - len(limited_rows), 0)
     return processed, total_all, prior_balance, prior_count
+
+
+def delete_activity(activity_id: int) -> int:
+    """Delete an activity row by id. Returns number of rows deleted."""
+    con = connect()
+    res = con.execute("""--sql
+        DELETE FROM activity WHERE id = ?
+        """, [activity_id])
+    # duckdb python API returns cursor; rowcount may not always be available; try to infer
+    try:
+        return res.rowcount if hasattr(res, 'rowcount') else 1
+    except Exception:
+        return 1
 
 
 def medication_summary(household_member_id: int, period: str = "week"):

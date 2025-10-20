@@ -21,7 +21,7 @@
 </form>
 <p style="font-size:.8rem; color:var(--text-light); margin:.5rem 0 1rem;">Entries: <strong>{{ count }}</strong>{% if total %} | Sum Amount: <strong>{{ total|fmt_signed }}</strong>{% endif %}</p>
 <table>
-  <thead><tr><th>Timestamp (EST)</th><th>Description</th><th>Amount</th><th>Notes</th></tr></thead>
+  <thead><tr><th>Timestamp (EST)</th><th>Description</th><th>Amount</th><th>Note</th></tr></thead>
   <tbody>
   {% for ts, activity_type, amount, notes in rows %}
     <tr title="{{ notes }}">

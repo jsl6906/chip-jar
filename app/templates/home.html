@@ -23,16 +23,16 @@
   {% elif request.query_params.get('error') == 'insufficient' %}
   <div class="flash error" id="flashMsg" style="animation:none;">Not enough chip points for that deduction.</div>
   {% endif %}
-  <form method="post" action="/activity" class="activity-form">
+  <form method="post" action="/activity" class="activity-form add-activity">
     <div class="inline-grid">
-      <label><span class="lbl">Member</span>
+      <label class="field"><span class="lbl">Member</span>
         <select name="household_member_id" required>
           {% for id, name in members %}
           <option value="{{ id }}">{{ name }}</option>
           {% endfor %}
         </select>
       </label>
-      <label><span class="lbl">Category</span>
+      <label class="field"><span class="lbl">Category</span>
         <select name="category" id="category" required onchange="toggleCategory()">
           <option value="incentive">Chips</option>
           <option value="medication">Medication</option>
@@ -40,16 +40,15 @@
         </select>
       </label>
       <div id="incentiveOptions">
-        <label><span class="lbl">Chips</span>
-          <select name="activity_type" id="incentiveSelect" data-cat="incentive">
-            {% for name, description, points in incentives %}
-            <option value="{{ name }}">{{ name }} ({{ points }})</option>
-            {% endfor %}
-          </select>
+        <label class="field"><span class="lbl">Amount</span>
+          <input class="field-input" type="number" name="amount" id="incentiveAmount" placeholder="e.g., +10 or -5" required />
+        </label>
+        <label class="field"><span class="lbl">Note</span>
+          <input class="field-input" type="text" name="activity_type" id="incentiveNote" placeholder="Describe the activity" data-cat="incentive" required />
         </label>
       </div>
       <div id="medicationOptions" style="display:none;">
-        <label><span class="lbl">Medication</span>
+        <label class="field"><span class="lbl">Medication</span>
           <select name="activity_type" id="medicationSelect" data-cat="medication">
             {% for name, description, dose in medications %}
             <option value="{{ name }}">{{ name }} (dose {{ dose }})</option>
@@ -58,22 +57,22 @@
         </label>
       </div>
       <div id="otherOptions" style="display:none;">
-        <label><span class="lbl">Desc</span>
-          <input type="text" name="activity_type" id="otherInput" placeholder="Describe activity" data-cat="other" />
+        <label class="field"><span class="lbl">Desc</span>
+          <input class="field-input" type="text" name="activity_type" id="otherInput" placeholder="Describe activity" data-cat="other" />
         </label>
-        <label><span class="lbl">Amount</span>
-          <input type="number" name="amount" id="amountInput" />
+        <label class="field"><span class="lbl">Amount</span>
+          <input class="field-input" type="number" name="amount" id="amountInput" />
         </label>
       </div>
     </div>
     <button type="button" class="toggle-adv" onclick="toggleAdvanced()" aria-expanded="false" id="advToggle">Show advanced ▾</button>
     <div class="advanced-fields" id="advancedFields">
       <div class="inline-grid">
-        <label><span class="lbl">When</span>
-          <input type="datetime-local" name="when" id="whenInput" />
+        <label class="field"><span class="lbl">When</span>
+          <input class="field-input" type="datetime-local" name="when" id="whenInput" />
         </label>
-        <label><span class="lbl">Notes</span>
-          <input type="text" name="notes" />
+        <label id="notesLabel" class="field"><span class="lbl">Note</span>
+          <input class="field-input" type="text" name="notes" id="notesInput" />
         </label>
       </div>
     </div>
@@ -100,19 +99,39 @@ function toggleCategory(){
   document.getElementById('medicationOptions').style.display = cat==='medication' ? '' : 'none';
   document.getElementById('otherOptions').style.display = cat==='other' ? '' : 'none';
   // Disable non-active activity_type inputs so only one submits
-  const incentiveSel = document.getElementById('incentiveSelect');
+  const incentiveNote = document.getElementById('incentiveNote');
   const medicationSel = document.getElementById('medicationSelect');
   const otherInput = document.getElementById('otherInput');
-  incentiveSel.disabled = cat !== 'incentive';
+  incentiveNote.disabled = cat !== 'incentive';
   medicationSel.disabled = cat !== 'medication';
   otherInput.disabled = cat !== 'other';
-  // Amount only relevant for 'other'; clear and disable when not other
+  // Amount handling
+  const incentiveAmount = document.getElementById('incentiveAmount');
   const amountInput = document.getElementById('amountInput');
-  if(cat !== 'other'){
-    amountInput.value='';
+  if(cat === 'incentive'){
+    incentiveAmount.disabled = false;
+    amountInput.value = '';
     amountInput.disabled = true;
-  } else {
+  } else if(cat === 'other'){
+    incentiveAmount.value = '';
+    incentiveAmount.disabled = true;
     amountInput.disabled = false;
+  } else {
+    incentiveAmount.value = '';
+    incentiveAmount.disabled = true;
+    amountInput.value = '';
+    amountInput.disabled = true;
+  }
+  // Notes handling: hide and disable for incentive
+  const notesLabel = document.getElementById('notesLabel');
+  const notesInput = document.getElementById('notesInput');
+  if(cat === 'incentive'){
+    notesLabel.style.display = 'none';
+    notesInput.disabled = true;
+    notesInput.value = '';
+  } else {
+    notesLabel.style.display = '';
+    notesInput.disabled = false;
   }
 }
 // initialize state on load
