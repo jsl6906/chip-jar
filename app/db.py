@@ -2,6 +2,10 @@ import os
 import duckdb
 from pathlib import Path
 from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
 from typing import Optional
 import logging
 
@@ -312,13 +316,27 @@ def incentive_report(household_member_id: int, limit: int = 50):
 
     # Compute slice sum & running totals
     slice_sum = 0
-    processed = []  # (id, ts, activity_type, amount, notes, running_total)
+    processed = []  # (id, ts, est_ts, activity_type, amount, notes, running_total)
     for row in limited_rows:
         _id, ts, activity_type, amount, notes, cum_from_newest = row
         amt_val = amount if amount is not None else 0
         slice_sum += amt_val
         running_total = total_all - (cum_from_newest - amt_val)
-        processed.append((_id, ts, activity_type, amount, notes, running_total))
+        # Convert timestamp to Eastern (America/New_York) for date grouping/display when possible.
+        est_ts = ts
+        try:
+            if ZoneInfo is not None:
+                # Treat naive timestamps as UTC for conversion consistency (db stores naive UTC)
+                if ts.tzinfo is None:
+                    ts_utc = ts.replace(tzinfo=ZoneInfo("UTC"))
+                else:
+                    ts_utc = ts
+                est_ts = ts_utc.astimezone(ZoneInfo("America/New_York"))
+        except Exception:
+            # Fall back to original ts on any error
+            est_ts = ts
+
+        processed.append((_id, ts, est_ts, activity_type, amount, notes, running_total))
 
     prior_balance = total_all - slice_sum
     prior_count = max(total_count - len(limited_rows), 0)

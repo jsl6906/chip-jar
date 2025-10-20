@@ -24,11 +24,11 @@
     </thead>
     <tbody>
     {% set ns = namespace(prev=None) %}
-    {% for _id, ts, activity_type, amount, notes, running_total in rows %}
-      {% set current_date = ts.date() %}
+    {% for _id, ts, est_ts, activity_type, amount, notes, running_total in rows %}
+      {% set current_date = est_ts.date() %}
       {% if ns.prev != current_date %}
       <tr class="day-header">
-        <td colspan="4"><strong>{{ (ts|fmt_ts('%Y-%m-%d')) }}</strong></td>
+        <td colspan="4"><strong>{{ (est_ts|fmt_ts('%Y-%m-%d')) }}</strong></td>
       </tr>
       {% set ns.prev = current_date %}
       {% endif %}
@@ -59,7 +59,7 @@
         {% set amt_class = 'amt-cell' %}
       {% endif %}
       <tr title="{{ notes }}" data-activity-id="{{ _id }}" class="activity-row">
-        <td class="ts-col">{{ ts|fmt_ts('%I:%M %p') }}</td>
+        <td class="ts-col">{{ est_ts|fmt_ts('%I:%M %p') }}</td>
   <td>{{ activity_type }}{% if notes %}<span class="sub-desc">({{ notes }})</span>{% endif %}</td>
         <td style="text-align:right;"><span class="{{ amt_class }}">{{ amount|fmt_signed }}</span></td>
         <td style="text-align:right;">{{ running_total|fmt_signed }}</td>
