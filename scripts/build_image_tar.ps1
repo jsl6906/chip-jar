@@ -31,6 +31,14 @@ try {
     exit 1
 }
 
+# If Tag is 'auto', use short git commit SHA (if available)
+if ($Tag -eq 'auto') {
+    try {
+        $sha = git rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $sha) { $Tag = $sha.Trim() }
+    } catch { }
+}
+
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 # Use braces to avoid scope-like parsing ($ImageName:$Tag would be invalid)
 $fullTag = "${ImageName}:$Tag"
@@ -66,15 +74,12 @@ if (-not $SkipSave) {
     docker save -o $tarFile $fullTag
     if ($LASTEXITCODE -ne 0) { Write-Error "docker save failed"; exit 1 }
 
-    # Maintain latest copy
-    $latestFile = Join-Path $OutDir "$ImageName-latest.tar"
-    Copy-Item $tarFile $latestFile -Force
-    Write-Host "[hook] Created $tarFile and updated $latestFile"
+    Write-Host "[hook] Created $tarFile"
 
-    # Prune old tars beyond $Keep
+    # Prune old tars beyond $Keep (simple prune of matching pattern)
     if ($Keep -gt 0) {
         $pattern = "$ImageName-*.tar"
-        $tars = Get-ChildItem -Path $OutDir -Filter $pattern | Where-Object { $_.Name -notlike '*latest.tar' } | Sort-Object LastWriteTime -Descending
+        $tars = Get-ChildItem -Path $OutDir -Filter $pattern | Sort-Object LastWriteTime -Descending
         $extra = $tars | Select-Object -Skip ($Keep)
         foreach ($f in $extra) {
             try {
@@ -97,15 +102,13 @@ if (-not $SkipSave) {
         } else {
             $shareName = Split-Path $tarFile -Leaf
             $destTar = Join-Path $CopyToShare $shareName
-            $destLatest = Join-Path $CopyToShare (Split-Path $latestFile -Leaf)
             $attempt = 0
             $success = $false
             while (-not $success -and $attempt -lt $ShareRetries) {
                 $attempt++
                 try {
                     Copy-Item $tarFile $destTar -Force
-                    Copy-Item $latestFile $destLatest -Force
-                    Write-Host "[hook] Copied image tar to $destTar and updated $destLatest (attempt $attempt)"
+                    Write-Host "[hook] Copied image tar to $destTar (attempt $attempt)"
                     $success = $true
                 } catch {
                     Write-Warning "[hook] Copy attempt $attempt failed: $($_.Exception.Message)"
