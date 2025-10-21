@@ -10,7 +10,7 @@ services:
       - TZ=America/New_York
       - PYTHONUNBUFFERED=1
     volumes:
-      - /mnt/seagate_backup/dockerconfig/personal-tracking/data:/data
+      - \\MediaServer\Docker\personal-tracking\data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
