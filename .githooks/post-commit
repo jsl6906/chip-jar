@@ -32,12 +32,11 @@ if [ "$status" -ne 0 ]; then
   echo "[post-commit wrapper] PowerShell hook failed (exit $status). Attempting minimal docker fallback." | tee -a "$LOG_FILE"
   if command -v docker >/dev/null 2>&1; then
     short_sha=$(git rev-parse --short HEAD 2>/dev/null)
-    tag="fallback-${short_sha:-unknown}"
+    tag="${short_sha:-unknown}"
     echo "[post-commit wrapper] Fallback building image personal-tracking:$tag" | tee -a "$LOG_FILE"
     if docker build -t personal-tracking:$tag . >> "$LOG_FILE" 2>&1; then
       out_tar="dist/personal-tracking-${tag}.tar"
       if docker save -o "$out_tar" personal-tracking:$tag >> "$LOG_FILE" 2>&1; then
-        cp "$out_tar" dist/personal-tracking-latest.tar 2>/dev/null || true
         echo "[post-commit wrapper] Fallback tar created: $out_tar" | tee -a "$LOG_FILE"
       else
         echo "[post-commit wrapper] Fallback docker save failed" | tee -a "$LOG_FILE"

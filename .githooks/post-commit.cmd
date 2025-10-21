@@ -46,10 +46,9 @@ if NOT %STATUS%==0 (
   if %ERRORLEVEL%==0 (
     for /f %%I in ('git rev-parse --short HEAD 2^>NUL') do set SHORT_SHA=%%I
     if "!SHORT_SHA!"=="" set SHORT_SHA=unknown
-    set TAG=fallback-!SHORT_SHA!
+    set TAG=!SHORT_SHA!
     docker build -t personal-tracking:!TAG! . >> %LOG_FILE% 2>&1 && (
       docker save -o dist\personal-tracking-!TAG!.tar personal-tracking:!TAG! >> %LOG_FILE% 2>&1 && (
-        copy /Y dist\personal-tracking-!TAG!.tar dist\personal-tracking-latest.tar >NUL 2>&1
         echo [post-commit wrapper] Fallback tar created: dist\personal-tracking-!TAG!.tar >> %LOG_FILE%
       ) || echo [post-commit wrapper] Fallback docker save failed >> %LOG_FILE%
     ) || echo [post-commit wrapper] Fallback docker build failed >> %LOG_FILE%
