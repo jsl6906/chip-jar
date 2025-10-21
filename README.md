@@ -1,3 +1,6 @@
+# personal-tracking
+
+## Development
 # Personal Tracking Application
 
 Basic family tracking app for chips (points) using DuckDB + FastAPI.
@@ -26,6 +29,37 @@ Run the app:
 uv sync
 uv run main.py
 ```
+
+### Git hooks (automatic docker build after commits)
+
+This repository includes a tracked hooks directory `.githooks` which contains cross-platform post-commit hooks that will attempt to build and save a Docker image tar after each commit.
+
+Commands:
+
+- Enable tracked hooks for this repo (preferred, keeps hooks under source control):
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+- Install a local hook into the active hooks path (will detect `core.hooksPath` and install there):
+
+```powershell
+.\scripts\install_git_hook.ps1
+```
+
+- To disable tracked hooks and use the repository `.git/hooks` instead:
+
+```powershell
+git config --unset core.hooksPath
+```
+
+Notes:
+
+- The `.githooks` files include POSIX, CMD and PowerShell wrappers so hooks are usable across platforms.
+- The hook respects `PT_SKIP_TAR=1` to opt-out of building on a given machine.
+- The build logic is implemented in `scripts/build_image_tar.ps1`. The hooks now call that script with no arguments and the build script tags images by git commit SHA (or timestamp fallback).
+
 
 ### Development with Auto Reload
 

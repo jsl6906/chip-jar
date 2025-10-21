@@ -59,9 +59,8 @@ if (-not (Test-Path $script)) {
 }
 
 try {
-  $args = @('-ImageName', $ImageName, '-Tag', $tag, '-Keep', $Keep)
-  if ($MultiArch) { $args += '-MultiArch' }
-  powershell -NoProfile -ExecutionPolicy Bypass -File $script @args
+  # The build script is simplified to a no-args invocation. Call it directly.
+  powershell -NoProfile -ExecutionPolicy Bypass -File $script
 }
 catch {
   Write-Warning "[post-commit] Image build failed: $($_.Exception.Message)"
