@@ -163,9 +163,9 @@ async def home(request: Request):
     incentive_totals = {mid: total for (mid, total) in db.incentive_totals_for_members()}
     allowance_totals = {mid: total for (mid, total) in db.allowance_totals_for_members()}
     return templates.TemplateResponse(
-        "home.html",
-        {
-            "request": request,
+        request=request,
+        name="home.html",
+        context={
             "members": members,
             "incentives": incentives,
             "medications": medications,
@@ -251,9 +251,9 @@ async def incentive_report(request: Request, member_id: int):
         
         incentive_desc = {name: desc for (name, desc, pts) in db.list_incentives()}
         return templates.TemplateResponse(
-            "incentive_report.html",
-            {
-                "request": request,
+            request=request,
+            name="incentive_report.html",
+            context={
                 "rows": rows,
                 "total": total,
                 "prior_balance": prior_balance,
@@ -278,9 +278,9 @@ async def allowance_report(request: Request, member_id: int):
         logger.debug(f"Allowance report: {len(rows)} rows, total={total}, prior={prior_balance}")
 
         return templates.TemplateResponse(
-            "allowance_report.html",
-            {
-                "request": request,
+            request=request,
+            name="allowance_report.html",
+            context={
                 "rows": rows,
                 "total": total,
                 "prior_balance": prior_balance,
@@ -328,9 +328,9 @@ async def medication_report(request: Request, member_id: int, period: str = "wee
     rows = db.medication_summary(member_id, period=period)
     members = db.list_household_members()
     return templates.TemplateResponse(
-        "medication_report.html",
-        {
-            "request": request,
+        request=request,
+        name="medication_report.html",
+        context={
             "rows": rows,
             "member_id": member_id,
             "period": period,
@@ -344,9 +344,9 @@ async def other_report(request: Request, member_id: int, limit: int = 100):
     members = db.list_household_members()
     # Combined description map for incentives & medications (may be unused for 'other')
     return templates.TemplateResponse(
-        "other_report.html",
-        {
-            "request": request,
+        request=request,
+        name="other_report.html",
+        context={
             "rows": rows,
             "count": count,
             "total": total,
