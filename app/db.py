@@ -45,7 +45,7 @@ SCHEMA_STATEMENTS = [
         household_member_id INTEGER NOT NULL REFERENCES household_member(id),
         category TEXT NOT NULL,
         activity_type TEXT NOT NULL,
-        amount INTEGER,
+        amount DECIMAL(12,2),
         notes TEXT
     );
     """,
@@ -84,6 +84,38 @@ def init_db() -> None:
             con.execute("ALTER TABLE household_member DROP COLUMN dob")
     except Exception:
         pass
+    # Migration: allow cents in activity amount by using DECIMAL(12,2)
+    try:
+        activity_cols = con.execute("PRAGMA table_info('activity')").fetchall()
+        amount_col = next((c for c in activity_cols if c[1] == 'amount'), None)
+        amount_type = (amount_col[2] or "").upper() if amount_col else ""
+        if amount_col and not amount_type.startswith("DECIMAL"):
+            logger.info("Migrating activity.amount to DECIMAL(12,2) via table rebuild")
+            con.execute("DROP TABLE IF EXISTS activity_new")
+            con.execute("DROP INDEX IF EXISTS idx_activity_member_ts")
+            con.execute("""--sql
+                CREATE TABLE activity_new (
+                    id BIGINT PRIMARY KEY,
+                    ts TIMESTAMP NOT NULL,
+                    household_member_id INTEGER NOT NULL REFERENCES household_member(id),
+                    category TEXT NOT NULL,
+                    activity_type TEXT NOT NULL,
+                    amount DECIMAL(12,2),
+                    notes TEXT
+                )
+            """)
+            con.execute("""--sql
+                INSERT INTO activity_new(id, ts, household_member_id, category, activity_type, amount, notes)
+                SELECT id, ts, household_member_id, category, activity_type,
+                       TRY_CAST(amount AS DECIMAL(12,2)) AS amount,
+                       notes
+                FROM activity
+            """)
+            con.execute("DROP TABLE activity")
+            con.execute("ALTER TABLE activity_new RENAME TO activity")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_activity_member_ts ON activity(household_member_id, ts)")
+    except Exception as e:
+        logger.warning(f"Activity amount migration skipped/failed: {e}")
     # seed tables from CSV if empty
     logger.info("Starting CSV data sync...")
     seed_from_csv(con)
@@ -220,18 +252,18 @@ def seed_from_csv(con: duckdb.DuckDBPyConnection):
     sync_medications()
 
 
-def add_activity(household_member_id: int, category: str, activity_type: str, amount: Optional[int], notes: Optional[str] = None, ts: Optional[datetime] = None):
+def add_activity(household_member_id: int, category: str, activity_type: str, amount: Optional[float], notes: Optional[str] = None, ts: Optional[datetime] = None):
     con = connect()
     if amount is None:
         # derive default amount from lookup tables for incentives/medications
         if category == "incentive":
             row = con.execute("SELECT points FROM incentives WHERE name = ?", [activity_type]).fetchone()
             if row:
-                amount = row[0]
+                amount = float(row[0])
         elif category == "medication":
             row = con.execute("SELECT dose FROM medications WHERE name = ?", [activity_type]).fetchone()
             if row:
-                amount = row[0]
+                amount = float(row[0])
     if ts is None:
         ts = datetime.utcnow()
     con.execute(
@@ -270,7 +302,7 @@ def list_medications():
     ).fetchall()
 
 
-def incentive_report(household_member_id: int, limit: int = 50):
+def _category_report(household_member_id: int, category: str, limit: int = 50):
     """Return recent incentive history plus overall total and running totals.
 
     Running total logic (Option B):
@@ -285,9 +317,9 @@ def incentive_report(household_member_id: int, limit: int = 50):
         """--sql
         SELECT COALESCE(SUM(amount),0) AS total_all, COUNT(*) AS cnt
         FROM activity
-        WHERE household_member_id = ? AND category = 'incentive'
+        WHERE household_member_id = ? AND category = ?
         """,
-        [household_member_id],
+        [household_member_id, category],
     ).fetchone()
     total_all = total_row[0] if total_row else 0
     total_count = total_row[1] if total_row else 0
@@ -298,7 +330,7 @@ def incentive_report(household_member_id: int, limit: int = 50):
         WITH limited AS (
             SELECT id, ts, activity_type, amount, notes
             FROM activity
-            WHERE household_member_id = ? AND category = 'incentive'
+            WHERE household_member_id = ? AND category = ?
             ORDER BY ts DESC, id DESC
             LIMIT ?
         )
@@ -308,7 +340,7 @@ def incentive_report(household_member_id: int, limit: int = 50):
         FROM limited
         ORDER BY ts DESC, id DESC;
         """,
-        [household_member_id, limit],
+        [household_member_id, category, limit],
     ).fetchall()
 
     if not limited_rows:
@@ -341,6 +373,16 @@ def incentive_report(household_member_id: int, limit: int = 50):
     prior_balance = total_all - slice_sum
     prior_count = max(total_count - len(limited_rows), 0)
     return processed, total_all, prior_balance, prior_count
+
+
+def incentive_report(household_member_id: int, limit: int = 50):
+    """Return recent incentive history plus overall total and running totals."""
+    return _category_report(household_member_id, "incentive", limit=limit)
+
+
+def allowance_report(household_member_id: int, limit: int = 50):
+    """Return recent allowance history plus overall total and running totals."""
+    return _category_report(household_member_id, "allowance", limit=limit)
 
 
 def delete_activity(activity_id: int) -> int:
@@ -435,6 +477,19 @@ def incentive_total(household_member_id: int) -> int:
     return row[0] if row else 0
 
 
+def allowance_total(household_member_id: int) -> float:
+    """Return total allowance amount for a single member."""
+    con = connect()
+    row = con.execute(
+        """--sql
+        SELECT COALESCE(SUM(amount),0) FROM activity
+        WHERE household_member_id = ? AND category = 'allowance'
+        """,
+        [household_member_id],
+    ).fetchone()
+    return float(row[0]) if row else 0.0
+
+
 def incentive_totals_for_members() -> list[tuple[int, int]]:
     """Return list of (member_id, total_points) for all members (zero where none)."""
     con = connect()
@@ -443,6 +498,20 @@ def incentive_totals_for_members() -> list[tuple[int, int]]:
         SELECT hm.id, COALESCE(SUM(a.amount),0) AS total
         FROM household_member hm
         LEFT JOIN activity a ON a.household_member_id = hm.id AND a.category = 'incentive'
+        GROUP BY hm.id, hm.name
+        ORDER BY hm.name
+        """
+    ).fetchall()
+
+
+def allowance_totals_for_members() -> list[tuple[int, float]]:
+    """Return list of (member_id, total_allowance) for all members (zero where none)."""
+    con = connect()
+    return con.execute(
+        """--sql
+        SELECT hm.id, COALESCE(SUM(a.amount),0) AS total
+        FROM household_member hm
+        LEFT JOIN activity a ON a.household_member_id = hm.id AND a.category = 'allowance'
         GROUP BY hm.id, hm.name
         ORDER BY hm.name
         """

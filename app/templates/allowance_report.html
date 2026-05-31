@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">Allowance Report</h2>
+  <form method="get" action="/report/allowance/{{ member_id }}">
+    <label>Member:
+      <select name="member_id" onchange="if(this.value){window.location='/report/allowance/'+this.value}">
+        {% for id, name in members %}
+        <option value="{{ id }}" {% if id==member_id %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  <p style="font-size:.9rem; color:var(--text-light); margin:.5rem 0 0;">Current Allowance Balance: <strong style="font-size:1.1rem; color:var(--primary);">${{ total|fmt_money }}</strong></p>
+
+  <table class="incentive-table" aria-label="Allowance history with running totals">
+    <thead>
+      <tr>
+        <th style="width: 22%;">Time</th>
+        <th>Activity</th>
+        <th style="width: 14%; text-align:right;">Amount</th>
+        <th style="width: 16%; text-align:right;">Running Total</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% set ns = namespace(prev=None) %}
+    {% for _id, ts, est_ts, activity_type, amount, notes, running_total in rows %}
+      {% set current_date = est_ts.date() %}
+      {% if ns.prev != current_date %}
+      <tr class="day-header">
+        <td colspan="4"><strong>{{ (est_ts|fmt_ts('%Y-%m-%d')) }}</strong></td>
+      </tr>
+      {% set ns.prev = current_date %}
+      {% endif %}
+      {% set abs_amount = amount if amount >= 0 else -amount %}
+      {% if abs_amount >= 200 %}
+        {% set tier = 8 %}
+      {% elif abs_amount >= 100 %}
+        {% set tier = 7 %}
+      {% elif abs_amount >= 50 %}
+        {% set tier = 6 %}
+      {% elif abs_amount >= 25 %}
+        {% set tier = 5 %}
+      {% elif abs_amount >= 15 %}
+        {% set tier = 4 %}
+      {% elif abs_amount >= 10 %}
+        {% set tier = 3 %}
+      {% elif abs_amount >= 5 %}
+        {% set tier = 2 %}
+      {% else %}
+        {% set tier = 1 %}
+      {% endif %}
+      {% if amount > 0 %}
+        {% set amt_class = 'amt-cell amt-pos-' ~ tier %}
+      {% elif amount < 0 %}
+        {% set amt_class = 'amt-cell amt-neg-' ~ tier %}
+      {% else %}
+        {% set amt_class = 'amt-cell' %}
+      {% endif %}
+      <tr title="{{ notes }}" data-activity-id="{{ _id }}" class="activity-row">
+        <td class="ts-col">{{ est_ts|fmt_ts('%I:%M %p') }}</td>
+        <td>{{ activity_type }}{% if notes %}<span class="sub-desc">({{ notes }})</span>{% endif %}</td>
+        <td style="text-align:right;"><span class="{{ amt_class }}">${{ amount|fmt_money(true) }}</span></td>
+        <td style="text-align:right;">${{ running_total|fmt_money(true) }}</td>
+      </tr>
+    {% endfor %}
+    {% if prior_count and prior_count > 0 %}
+      <tr>
+        <td colspan="2" style="font-size:.7rem; color:var(--text-light);">Earlier activity ({{ prior_count }})</td>
+        <td style="text-align:right; font-size:.7rem; color:var(--text-light);">…</td>
+        <td style="text-align:right; font-size:.7rem; font-weight:600; color:var(--text-light);">${{ prior_balance|fmt_money(true) }}</td>
+      </tr>
+    {% endif %}
+    </tbody>
+  </table>
+  <p class="mt-sm" style="font-size:.65rem; color:var(--text-light);">Color intensity highlights larger magnitude changes (green = gain, red = deduction).</p>
+  <div class="mt-md"><a href="/" style="text-decoration:none;color:var(--primary);font-weight:600;">← Back</a></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<form id="deleteForm" method="post" action="/activity/delete" style="display:none;">
+  <input type="hidden" name="activity_id" id="formActivityId" />
+  <input type="hidden" name="member_id" id="formMemberId" value="{{ member_id }}" />
+  <input type="hidden" name="report" value="allowance" />
+</form>
+
+<script>
+(function(){
+  let pressTimer = null;
+
+  function tryDelete(id){
+    const ok = window.confirm('Delete this activity? This action cannot be undone.');
+    if(!ok) return;
+    document.getElementById('formActivityId').value = id;
+    document.getElementById('deleteForm').submit();
+  }
+
+  document.querySelectorAll('.activity-row').forEach(row => {
+    const id = row.getAttribute('data-activity-id');
+
+    row.addEventListener('mousedown', () => {
+      pressTimer = setTimeout(() => tryDelete(id), 700);
+    });
+    row.addEventListener('mouseup', () => { clearTimeout(pressTimer); pressTimer = null; });
+    row.addEventListener('mouseleave', () => { clearTimeout(pressTimer); pressTimer = null; });
+
+    row.addEventListener('touchstart', () => {
+      pressTimer = setTimeout(() => tryDelete(id), 700);
+    });
+    row.addEventListener('touchend', () => { clearTimeout(pressTimer); pressTimer = null; });
+    row.addEventListener('touchmove', () => { clearTimeout(pressTimer); pressTimer = null; });
+  });
+})();
+</script>
+
+{% endblock %}

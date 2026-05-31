@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 from datetime import datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
 import sys
 import os
@@ -135,8 +136,21 @@ def _fmt_signed(value):
         return ""
     return f"+{value}" if isinstance(value, (int, float)) and value > 0 else str(value)
 
+
+def _fmt_money(value, signed: bool = False):
+    if value is None:
+        return ""
+    try:
+        dec = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return str(value)
+
+    prefix = "+" if signed and dec > 0 else ""
+    return f"{prefix}{dec:.2f}"
+
 templates.env.filters["fmt_ts"] = _fmt_ts
 templates.env.filters["fmt_signed"] = _fmt_signed
+templates.env.filters["fmt_money"] = _fmt_money
 
 db.init_db()
 
@@ -147,6 +161,7 @@ async def home(request: Request):
     medications = db.list_medications()
     added = request.query_params.get("added") == "1"
     incentive_totals = {mid: total for (mid, total) in db.incentive_totals_for_members()}
+    allowance_totals = {mid: total for (mid, total) in db.allowance_totals_for_members()}
     return templates.TemplateResponse(
         "home.html",
         {
@@ -156,6 +171,7 @@ async def home(request: Request):
             "medications": medications,
             "added": added,
             "incentive_totals": incentive_totals,
+            "allowance_totals": allowance_totals,
         },
     )
 
@@ -168,30 +184,22 @@ async def add_activity(
     notes: Optional[str] = Form(None),
     when: Optional[str] = Form(None),  # ISO local datetime from datetime-local input
 ):
-    parsed_amount: Optional[int]
+    parsed_amount: Optional[float]
     if amount is None or amount == "":
         parsed_amount = None
     else:
-        try:
-            parsed_amount = int(amount)
-        except ValueError:
-            parsed_amount = None
-
-    # Validate incentive negative does not exceed available total.
-    if category == "incentive":
-        # Determine effective amount (may be None -> default lookup later)
-        effective_amount = parsed_amount
-        if effective_amount is None:
-            # Try to derive default from lookup before validation
-            for name, desc, pts in db.list_incentives():
-                if name == activity_type:
-                    effective_amount = pts
-                    break
-        if effective_amount is not None and effective_amount < 0:
-            current_total = db.incentive_total(household_member_id)
-            if current_total + effective_amount < 0:
-                # Redirect back with error indicator
-                return RedirectResponse("/?added=0&error=insufficient", status_code=303)
+        if category == "allowance":
+            try:
+                parsed_amount = float(
+                    Decimal(amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                )
+            except (InvalidOperation, ValueError):
+                parsed_amount = None
+        else:
+            try:
+                parsed_amount = int(amount)
+            except ValueError:
+                parsed_amount = None
 
     # Parse custom timestamp if provided; treat input as local time in Eastern if timezone not supplied.
     event_dt: Optional[datetime] = None
@@ -209,7 +217,7 @@ async def add_activity(
     db.add_activity(household_member_id, category, activity_type, parsed_amount, notes, event_dt)
 
     # Build success message params
-    pts_val: Optional[int] = None
+    pts_val: Optional[float] = None
     if parsed_amount is not None:
         pts_val = parsed_amount
     elif category == "incentive":
@@ -224,7 +232,7 @@ async def add_activity(
             ts_disp = event_dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(_EASTERN).strftime("%Y-%m-%d %I:%M %p")
         else:
             ts_disp = event_dt.strftime("%Y-%m-%d %H:%M")
-    params = ["added=1", f"cat={category}", f"act={activity_type}"]
+    params = ["added=1", f"member_id={household_member_id}", f"cat={category}", f"act={activity_type}"]
     if pts_val is not None:
         params.append(f"pts={pts_val}")
     if ts_disp:
@@ -260,8 +268,39 @@ async def incentive_report(request: Request, member_id: int):
         raise
 
 
+@app.get("/report/allowance/{member_id}", response_class=HTMLResponse)
+async def allowance_report(request: Request, member_id: int):
+    logger.info(f"Allowance report requested for member {member_id}")
+    try:
+        rows, total, prior_balance, prior_count = db.allowance_report(member_id)
+        members = db.list_household_members()
+
+        logger.debug(f"Allowance report: {len(rows)} rows, total={total}, prior={prior_balance}")
+
+        return templates.TemplateResponse(
+            "allowance_report.html",
+            {
+                "request": request,
+                "rows": rows,
+                "total": total,
+                "prior_balance": prior_balance,
+                "prior_count": prior_count,
+                "member_id": member_id,
+                "members": members,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error generating allowance report for member {member_id}: {str(e)}")
+        raise
+
+
 @app.post("/activity/delete")
-async def activity_delete(request: Request, activity_id: int = Form(...), member_id: Optional[int] = Form(None)):
+async def activity_delete(
+    request: Request,
+    activity_id: int = Form(...),
+    member_id: Optional[int] = Form(None),
+    report: str = Form("incentive"),
+):
     """Delete activity by id and redirect back to the appropriate report page.
 
     Expects form fields: activity_id, member_id (optional, for redirect back to member report)
@@ -273,10 +312,14 @@ async def activity_delete(request: Request, activity_id: int = Form(...), member
         logger.error(f"Failed to delete activity {activity_id}: {str(e)}")
         # Continue to redirect back with error query param
         if member_id:
+            if report == "allowance":
+                return RedirectResponse(f"/report/allowance/{member_id}?deleted=0", status_code=303)
             return RedirectResponse(f"/report/incentives/{member_id}?deleted=0", status_code=303)
         return RedirectResponse(f"/?deleted=0", status_code=303)
 
     if member_id:
+        if report == "allowance":
+            return RedirectResponse(f"/report/allowance/{member_id}?deleted=1", status_code=303)
         return RedirectResponse(f"/report/incentives/{member_id}?deleted=1", status_code=303)
     return RedirectResponse("/?deleted=1", status_code=303)
 
