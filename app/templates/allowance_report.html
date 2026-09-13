@@ -32,7 +32,8 @@
       </tr>
       {% set ns.prev = current_date %}
       {% endif %}
-      {% set abs_amount = amount if amount >= 0 else -amount %}
+      {% set amt = amount if amount is not none else 0 %}
+      {% set abs_amount = amt if amt >= 0 else -amt %}
       {% if abs_amount >= 200 %}
         {% set tier = 8 %}
       {% elif abs_amount >= 100 %}
@@ -50,9 +51,9 @@
       {% else %}
         {% set tier = 1 %}
       {% endif %}
-      {% if amount > 0 %}
+      {% if amt > 0 %}
         {% set amt_class = 'amt-cell amt-pos-' ~ tier %}
-      {% elif amount < 0 %}
+      {% elif amt < 0 %}
         {% set amt_class = 'amt-cell amt-neg-' ~ tier %}
       {% else %}
         {% set amt_class = 'amt-cell' %}
@@ -60,7 +61,7 @@
       <tr title="{{ notes }}" data-activity-id="{{ _id }}" class="activity-row">
         <td class="ts-col">{{ est_ts|fmt_ts('%I:%M %p') }}</td>
         <td>{{ activity_type }}{% if notes %}<span class="sub-desc">({{ notes }})</span>{% endif %}</td>
-        <td style="text-align:right;"><span class="{{ amt_class }}">${{ amount|fmt_money(true) }}</span></td>
+        <td style="text-align:right;"><span class="{{ amt_class }}">${{ amt|fmt_money(true) }}</span></td>
         <td style="text-align:right;">${{ running_total|fmt_money(true) }}</td>
       </tr>
     {% endfor %}

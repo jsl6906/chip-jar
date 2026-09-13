@@ -196,9 +196,11 @@ async def add_activity(
             except (InvalidOperation, ValueError):
                 parsed_amount = None
         else:
+            # Tolerate "+1", "1.5", " 2 " etc.; only fall back to None when truly unparseable
             try:
-                parsed_amount = int(amount)
-            except ValueError:
+                parsed_amount = int(Decimal(amount.strip()).to_integral_value(rounding=ROUND_HALF_UP))
+            except (InvalidOperation, ValueError, AttributeError):
+                logger.warning(f"Unparseable amount {amount!r} for category={category} activity_type={activity_type!r}")
                 parsed_amount = None
 
     # Parse custom timestamp if provided; treat input as local time in Eastern if timezone not supplied.
