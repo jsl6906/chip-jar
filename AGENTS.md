@@ -4,9 +4,11 @@
 
 This project uses **uv** for Python dependency management and virtual environment handling. **Never use `pip` directly** - always use `uv` commands instead. When trying to test implementation use `uv run <script>` to run scripts within the virtual environment. Use `uv add <packagename>` to add new dependencies.
 
-## Duckdb for data access and querying
+## Data access: Azure PostgreSQL via psycopg
 
-This project utilizes duckdb as the primary mechanism for accessing and querying data. duckdb methods should always be used first when attempting to query data, including local duckdb files, CSV files, postgreSQL database, and other data sources where it is possible.
+The application stores its data in Azure Database for PostgreSQL (server `jsl6906`, database `personal_storage`, schema `personal_tracking`). Runtime data access goes through `app/db.py` (psycopg 3 + `psycopg_pool`); always use `with db.connection() as conn:` and parameterized queries (`%s`), never string-formatted SQL. DDL lives in `sql/schema.sql` and must stay idempotent. The app connects as the least-privilege `personal_tracking_app` role; never use an admin role in application code.
+
+duckdb is only used for ad-hoc analysis and one-off migrations (dependency group `migrate`); it is not an application dependency.
 
 ## SQL Formatting
 
