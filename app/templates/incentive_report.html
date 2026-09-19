@@ -11,7 +11,7 @@
       </select>
     </label>
   </form>
-  <p style="font-size:.9rem; color:var(--text-light); margin:.5rem 0 0;">Current Total Chips: <strong style="font-size:1.1rem; color:var(--primary);">{{ total }}</strong></p>
+  <p style="font-size:.9rem; color:var(--text-light); margin:.5rem 0 0;">Current Total Chips: <strong style="font-size:1.1rem; color:var(--primary);">{{ total|fmt_num }}</strong></p>
 
   <table class="incentive-table" aria-label="Chips history with running totals">
     <thead>

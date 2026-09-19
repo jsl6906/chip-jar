@@ -1,18 +1,22 @@
 [project]
 name = "personal-tracking"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Family chips/allowance/medication tracker (FastAPI + Azure PostgreSQL)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
 	"fastapi",
 	"uvicorn[standard]",
-	"duckdb",
 	"jinja2",
 	"python-multipart",
-	"python-dateutil"
-	,"tzdata"
+	"psycopg[binary,pool]",
+	"python-dotenv",
+	"tzdata",
 ]
 
 [project.scripts]
 personal-tracking = "app.web:run"
+
+[dependency-groups]
+# Only needed for the one-time DuckDB -> Postgres migration (uv sync --group migrate)
+migrate = ["duckdb"]

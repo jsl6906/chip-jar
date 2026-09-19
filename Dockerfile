@@ -2,30 +2,29 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    DATA_DIR=/data
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 app
 
 WORKDIR /app
 
-# Install uv
-RUN pip install --no-cache-dir uv
-
-COPY pyproject.toml README.md ./
-
-# Pre-generate lock (layer cache) then install deps
-RUN uv lock || true
-RUN uv sync
-
-# Install curl for health check
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Dependency layer (cached until pyproject/uv.lock change); dev/migrate groups excluded
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev
 
 COPY app ./app
-COPY data ./data
+RUN chown -R app:app /app
+USER app
 
 EXPOSE 8000
 
-# Add health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uv", "run", "uvicorn", "app.web:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--access-log"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.web:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--access-log"]

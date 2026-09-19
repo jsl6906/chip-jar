@@ -16,4 +16,8 @@ build/
 Dockerfile*
 docker-compose.yml
 README.md~
-uv.lock
+.env
+*.duckdb
+data/
+scripts/
+.githooks/

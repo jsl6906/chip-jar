@@ -16,3 +16,6 @@ wheels/
 *.duckdb
 data/personal_tracking.duckdb
 *.log
+
+# Secrets
+.env

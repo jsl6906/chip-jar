@@ -93,8 +93,8 @@
     {% for id, name in members %}
     <li>
       {{ name }}:
-  <a href="/report/incentives/{{ id }}">Chips ({{ incentive_totals[id] if incentive_totals and id in incentive_totals else 0 }})</a> |
-      <a href="/report/allowance/{{ id }}">Allowance (${{ (allowance_totals[id] if allowance_totals and id in allowance_totals else 0)|fmt_money }})</a> |
+  <a href="/report/incentives/{{ id }}">Chips ({{ incentive_totals.get(id, 0)|fmt_num }})</a> |
+      <a href="/report/allowance/{{ id }}">Allowance (${{ allowance_totals.get(id, 0)|fmt_money }})</a> |
       <a href="/report/medications/{{ id }}">Medications</a> |
       <a href="/report/other/{{ id }}">Other</a>
     </li>

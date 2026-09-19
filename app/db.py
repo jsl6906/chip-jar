@@ -1,374 +1,196 @@
-import os
-import duckdb
-from pathlib import Path
-from datetime import datetime
-try:
-    from zoneinfo import ZoneInfo
-except Exception:  # pragma: no cover
-    ZoneInfo = None  # type: ignore
-from typing import Optional
+"""PostgreSQL data access for the personal-tracking app (psycopg 3 + connection pool)."""
+
 import logging
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Iterator, Optional
+
+import psycopg
+from psycopg import sql
+from psycopg_pool import ConnectionPool
+
+from . import settings
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR_ENV = "DATA_DIR"
-DEFAULT_DATA_DIR = Path("data")
-DB_FILENAME = "personal_tracking.duckdb"
+CATEGORIES = ("incentive", "allowance", "medication", "other")
 
-SCHEMA_STATEMENTS = [
-    """--sql
-    CREATE TABLE IF NOT EXISTS household_member (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE
-    );
-    """,
-    """--sql
-    CREATE TABLE IF NOT EXISTS incentives (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        description TEXT,
-        points INTEGER NOT NULL
-    );
-    """,
-    """--sql
-    CREATE TABLE IF NOT EXISTS medications (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        description TEXT,
-        dose INTEGER NOT NULL
-    );
-    """,
-    """--sql
-    CREATE TABLE IF NOT EXISTS activity (
-        id BIGINT PRIMARY KEY,
-        ts TIMESTAMP NOT NULL,
-        household_member_id INTEGER NOT NULL REFERENCES household_member(id),
-        category TEXT NOT NULL,
-        activity_type TEXT NOT NULL,
-        amount DECIMAL(12,2),
-        notes TEXT
-    );
-    """,
-    """--sql
-    CREATE INDEX IF NOT EXISTS idx_activity_member_ts ON activity(household_member_id, ts);
-    """,
-]
+_pool: Optional[ConnectionPool] = None
 
 
-def get_data_dir() -> Path:
-    p = Path(os.environ.get(DATA_DIR_ENV, DEFAULT_DATA_DIR)).resolve()
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+def _configure(conn: psycopg.Connection) -> None:
+    # Explicit search_path + UTC session so timestamptz values come back as aware UTC.
+    conn.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(settings.DB_SCHEMA)))
+    conn.execute("SET timezone TO 'UTC'")
+    conn.commit()
 
 
-def get_db_path() -> Path:
-    return get_data_dir() / DB_FILENAME
+def open_pool() -> ConnectionPool:
+    global _pool
+    if _pool is None:
+        if not settings.DATABASE_URL:
+            raise RuntimeError("DATABASE_URL is not set (see .env.example)")
+        _pool = ConnectionPool(
+            conninfo=settings.DATABASE_URL,
+            min_size=settings.DB_POOL_MIN,
+            max_size=settings.DB_POOL_MAX,
+            configure=_configure,
+            kwargs={"application_name": "personal-tracking"},
+            open=True,
+        )
+        _pool.wait(timeout=30)
+        logger.info("Database pool opened (schema=%s)", settings.DB_SCHEMA)
+    return _pool
 
 
-def connect() -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(str(get_db_path()))
+def close_pool() -> None:
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+        logger.info("Database pool closed")
 
 
-def init_db() -> None:
-    logger.info(f"Initializing database at {get_db_path()}")
-    con = connect()
-    logger.info("Connected to database successfully")
-    
-    for i, stmt in enumerate(SCHEMA_STATEMENTS):
-        logger.debug(f"Executing schema statement {i+1}/{len(SCHEMA_STATEMENTS)}")
-        con.execute(stmt)
-    # Migration: drop obsolete dob column if present
-    try:
-        cols = con.execute("PRAGMA table_info('household_member')").fetchall()
-        if any(c[1] == 'dob' for c in cols):
-            con.execute("ALTER TABLE household_member DROP COLUMN dob")
-    except Exception:
-        pass
-    # Migration: allow cents in activity amount by using DECIMAL(12,2)
-    try:
-        activity_cols = con.execute("PRAGMA table_info('activity')").fetchall()
-        amount_col = next((c for c in activity_cols if c[1] == 'amount'), None)
-        amount_type = (amount_col[2] or "").upper() if amount_col else ""
-        if amount_col and not amount_type.startswith("DECIMAL"):
-            logger.info("Migrating activity.amount to DECIMAL(12,2) via table rebuild")
-            con.execute("DROP TABLE IF EXISTS activity_new")
-            con.execute("DROP INDEX IF EXISTS idx_activity_member_ts")
-            con.execute("""--sql
-                CREATE TABLE activity_new (
-                    id BIGINT PRIMARY KEY,
-                    ts TIMESTAMP NOT NULL,
-                    household_member_id INTEGER NOT NULL REFERENCES household_member(id),
-                    category TEXT NOT NULL,
-                    activity_type TEXT NOT NULL,
-                    amount DECIMAL(12,2),
-                    notes TEXT
-                )
-            """)
-            con.execute("""--sql
-                INSERT INTO activity_new(id, ts, household_member_id, category, activity_type, amount, notes)
-                SELECT id, ts, household_member_id, category, activity_type,
-                       TRY_CAST(amount AS DECIMAL(12,2)) AS amount,
-                       notes
-                FROM activity
-            """)
-            con.execute("DROP TABLE activity")
-            con.execute("ALTER TABLE activity_new RENAME TO activity")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_activity_member_ts ON activity(household_member_id, ts)")
-    except Exception as e:
-        logger.warning(f"Activity amount migration skipped/failed: {e}")
-    # seed tables from CSV if empty
-    logger.info("Starting CSV data sync...")
-    seed_from_csv(con)
-    logger.info("Database initialization complete")
+@contextmanager
+def connection() -> Iterator[psycopg.Connection]:
+    """Yield a pooled connection; commits on success, rolls back on error."""
+    with open_pool().connection() as conn:
+        yield conn
 
 
-def table_empty(con: duckdb.DuckDBPyConnection, table: str) -> bool:
-    row = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-    if not row:
-        return True
-    return (row[0] or 0) == 0
+def ping() -> int:
+    """Return household member count; raises if the database is unreachable."""
+    with connection() as conn:
+        row = conn.execute("SELECT COUNT(*) FROM household_member").fetchone()
+    return int(row[0]) if row else 0
 
 
-def seed_from_csv(con: duckdb.DuckDBPyConnection):
-    data_dir = get_data_dir()
-    pkg_data_dir = Path(__file__).resolve().parent.parent / "data"
+# --- lookups -----------------------------------------------------------------
 
-    def csv_path(name: str) -> Path:
-        # Prefer external / mounted data dir; fallback to packaged copy if missing
-        primary = data_dir / name
-        if primary.exists():
-            return primary
-        fallback = pkg_data_dir / name
-        return fallback
-    # Helper functions to sync CSV content (add new + update changed attributes) without deleting existing rows.
-    def sync_household():
-        # If empty, fast path insert to assign contiguous ids.
-        if table_empty(con, "household_member"):
-            con.execute(f"""--sql
-                INSERT INTO household_member(id, name)
-                SELECT row_number() OVER () as id, name
-                FROM read_csv_auto('{csv_path('household_member.csv')}', HEADER=TRUE)
-            """)
-            return
-        # Otherwise only insert new names (no attributes beyond name to update).
-        con.execute(f"""--sql
-            CREATE TEMPORARY TABLE tmp_hh AS
-            SELECT DISTINCT src.name AS name
-            FROM read_csv_auto('{csv_path('household_member.csv')}', HEADER=TRUE) AS src;
-        """)
-        # Insert new names assigning new ids after current max.
-        con.execute("""--sql
-            WITH max_id AS (SELECT COALESCE(MAX(id),0) AS m FROM household_member),
-                 new_rows AS (
-                     SELECT t.name AS name, ROW_NUMBER() OVER (ORDER BY t.name) AS rn
-                     FROM tmp_hh t
-                     LEFT JOIN household_member h ON h.name = t.name
-                     WHERE h.name IS NULL
-                 )
-            INSERT INTO household_member(id, name)
-            SELECT max_id.m + rn, name FROM new_rows CROSS JOIN max_id;
-        """)
-        con.execute("DROP TABLE IF EXISTS tmp_hh")
-
-    def sync_incentives():
-        if table_empty(con, "incentives"):
-            con.execute(f"""--sql
-                INSERT INTO incentives(id, name, description, points)
-                SELECT row_number() OVER () as id, name, description, TRY_CAST(points AS INTEGER)
-                FROM read_csv_auto('{csv_path('incentives.csv')}', HEADER=TRUE)
-            """)
-            return
-        con.execute(f"""--sql
-            CREATE TEMPORARY TABLE tmp_incentive AS
-            SELECT name, description, TRY_CAST(points AS INTEGER) AS points
-            FROM read_csv_auto('{csv_path('incentives.csv')}', HEADER=TRUE);
-        """)
-        # Update changed rows
-        con.execute("""--sql
-            UPDATE incentives AS i
-            SET description = t.description,
-                points = t.points
-            FROM tmp_incentive t
-            WHERE i.name = t.name
-              AND (coalesce(i.description,'') <> coalesce(t.description,'') OR i.points <> t.points);
-        """)
-        # Insert new rows
-        con.execute("""--sql
-            WITH max_id AS (SELECT COALESCE(MAX(id),0) AS m FROM incentives),
-                 to_insert AS (
-                   SELECT t.name, t.description, t.points,
-                          ROW_NUMBER() OVER (ORDER BY t.name) AS rn
-                   FROM tmp_incentive t
-                   LEFT JOIN incentives i ON i.name = t.name
-                   WHERE i.name IS NULL
-                 )
-            INSERT INTO incentives(id, name, description, points)
-            SELECT max_id.m + rn, name, description, points
-            FROM to_insert CROSS JOIN max_id;
-        """)
-        con.execute("DROP TABLE IF EXISTS tmp_incentive")
-
-    def sync_medications():
-        if table_empty(con, "medications"):
-            con.execute(f"""--sql
-                INSERT INTO medications(id, name, description, dose)
-                SELECT row_number() OVER () as id, name, description, TRY_CAST(dose AS INTEGER)
-                FROM read_csv_auto('{csv_path('medications.csv')}', HEADER=TRUE)
-            """)
-            return
-        con.execute(f"""--sql
-            CREATE TEMPORARY TABLE tmp_med AS
-            SELECT name, description, TRY_CAST(dose AS INTEGER) AS dose
-            FROM read_csv_auto('{csv_path('medications.csv')}', HEADER=TRUE);
-        """)
-        # Update changed rows
-        con.execute("""--sql
-            UPDATE medications AS m
-            SET description = t.description,
-                dose = t.dose
-            FROM tmp_med t
-            WHERE m.name = t.name
-              AND (coalesce(m.description,'') <> coalesce(t.description,'') OR m.dose <> t.dose);
-        """)
-        # Insert new rows
-        con.execute("""--sql
-            WITH max_id AS (SELECT COALESCE(MAX(id),0) AS m FROM medications),
-                 to_insert AS (
-                   SELECT t.name, t.description, t.dose,
-                          ROW_NUMBER() OVER (ORDER BY t.name) AS rn
-                   FROM tmp_med t
-                   LEFT JOIN medications m ON m.name = t.name
-                   WHERE m.name IS NULL
-                 )
-            INSERT INTO medications(id, name, description, dose)
-            SELECT max_id.m + rn, name, description, dose
-            FROM to_insert CROSS JOIN max_id;
-        """)
-        con.execute("DROP TABLE IF EXISTS tmp_med")
-
-    # Execute syncs
-    sync_household()
-    sync_incentives()
-    sync_medications()
+def list_household_members() -> list[tuple[int, str]]:
+    with connection() as conn:
+        return conn.execute("SELECT id, name FROM household_member ORDER BY name").fetchall()
 
 
-def add_activity(household_member_id: int, category: str, activity_type: str, amount: Optional[float], notes: Optional[str] = None, ts: Optional[datetime] = None):
-    con = connect()
-    if amount is None:
-        # derive default amount from lookup tables for incentives/medications
-        if category == "incentive":
-            row = con.execute("SELECT points FROM incentives WHERE name = ?", [activity_type]).fetchone()
-            if row:
-                amount = float(row[0])
-        elif category == "medication":
-            row = con.execute("SELECT dose FROM medications WHERE name = ?", [activity_type]).fetchone()
-            if row:
-                amount = float(row[0])
+def list_incentives() -> list[tuple[str, Optional[str], int]]:
+    with connection() as conn:
+        return conn.execute(
+            """--sql
+            SELECT name, description, points
+            FROM incentives
+            ORDER BY ABS(points) ASC, points DESC, name
+            """
+        ).fetchall()
+
+
+def list_medications() -> list[tuple[str, Optional[str], int]]:
+    with connection() as conn:
+        return conn.execute(
+            """--sql
+            SELECT name, description, dose
+            FROM medications
+            ORDER BY ABS(dose) ASC, dose DESC, name
+            """
+        ).fetchall()
+
+
+# --- writes ------------------------------------------------------------------
+
+def add_activity(
+    household_member_id: int,
+    category: str,
+    activity_type: str,
+    amount: Optional[Decimal],
+    notes: Optional[str] = None,
+    ts: Optional[datetime] = None,
+) -> int:
+    """Insert an activity row and return its id.
+
+    When amount is None for incentive/medication, the default is derived from the lookup table.
+    """
+    if category not in CATEGORIES:
+        raise ValueError(f"Unknown category {category!r}")
     if ts is None:
-        ts = datetime.utcnow()
-    con.execute(
-        """--sql
-        INSERT INTO activity(id, ts, household_member_id, category, activity_type, amount, notes)
-        VALUES ((SELECT COALESCE(MAX(id)+1,1) FROM activity), ?, ?, ?, ?, ?, ?)
-        """,
-        [ts, household_member_id, category, activity_type, amount, notes],
-    )
+        ts = datetime.now(timezone.utc)
+    with connection() as conn:
+        if amount is None and category in ("incentive", "medication"):
+            table, col = ("incentives", "points") if category == "incentive" else ("medications", "dose")
+            row = conn.execute(
+                sql.SQL("SELECT {} FROM {} WHERE name = %s").format(sql.Identifier(col), sql.Identifier(table)),
+                [activity_type],
+            ).fetchone()
+            if row:
+                amount = Decimal(row[0])
+        row = conn.execute(
+            """--sql
+            INSERT INTO activity (ts, household_member_id, category, activity_type, amount, notes)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            [ts, household_member_id, category, activity_type, amount, notes],
+        ).fetchone()
+    return int(row[0])
 
 
-def list_household_members():
-    con = connect()
-    return con.execute("SELECT id, name FROM household_member ORDER BY name").fetchall()
+def delete_activity(activity_id: int) -> int:
+    """Delete an activity row by id. Returns number of rows deleted."""
+    with connection() as conn:
+        cur = conn.execute("DELETE FROM activity WHERE id = %s", [activity_id])
+        return cur.rowcount
 
 
-def list_incentives():
-    con = connect()
-    return con.execute(
-        """--sql
-        SELECT name, description, points
-        FROM incentives
-        ORDER BY ABS(points) ASC, points DESC, name
-        """
-    ).fetchall()
-
-
-def list_medications():
-    con = connect()
-    return con.execute(
-        """--sql
-        SELECT name, description, dose
-        FROM medications
-        ORDER BY ABS(dose) ASC, dose DESC, name
-        """
-    ).fetchall()
-
+# --- reports -----------------------------------------------------------------
 
 def _category_report(household_member_id: int, category: str, limit: int = 50):
-    """Return recent incentive history plus overall total and running totals.
+    """Return (rows, total_all, prior_balance, prior_count) for a running-balance category.
 
-    Running total logic (Option B):
-      - Compute overall total once (total_all).
-      - Pull limited most recent rows (DESC) with window cumulative sum from newest downward.
-      - Derive running_total for each row as: total_all - (cum_from_newest - amount_for_row)
-        ensuring the newest row's running_total == overall total.
-    Also returns prior_balance (total_all - sum(displayed)) and prior_count (earlier row count).
+    rows: (id, ts, local_ts, activity_type, amount, notes, running_total), newest first.
+    running_total for each row is the balance *after* that row was applied.
     """
-    con = connect()
-    total_row = con.execute(
-        """--sql
-        SELECT COALESCE(SUM(amount),0) AS total_all, COUNT(*) AS cnt
-        FROM activity
-        WHERE household_member_id = ? AND category = ?
-        """,
-        [household_member_id, category],
-    ).fetchone()
-    total_all = total_row[0] if total_row else 0
-    total_count = total_row[1] if total_row else 0
-
-    # Fetch limited set with cumulative sum from newest downward
-    limited_rows = con.execute(
-        """--sql
-        WITH limited AS (
-            SELECT id, ts, activity_type, amount, notes
+    with connection() as conn:
+        total_row = conn.execute(
+            """--sql
+            SELECT COALESCE(SUM(amount), 0) AS total_all, COUNT(*) AS cnt
             FROM activity
-            WHERE household_member_id = ? AND category = ?
+            WHERE household_member_id = %s AND category = %s
+            """,
+            [household_member_id, category],
+        ).fetchone()
+        total_all: Decimal = total_row[0]
+        total_count: int = total_row[1]
+
+        limited_rows = conn.execute(
+            """--sql
+            WITH limited AS (
+                SELECT id, ts, activity_type, amount, notes
+                FROM activity
+                WHERE household_member_id = %s AND category = %s
+                ORDER BY ts DESC, id DESC
+                LIMIT %s
+            )
+            SELECT id, ts, activity_type, amount, notes,
+                   SUM(COALESCE(amount, 0)) OVER (
+                       ORDER BY ts DESC, id DESC
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                   ) AS cum_from_newest
+            FROM limited
             ORDER BY ts DESC, id DESC
-            LIMIT ?
-        )
-        SELECT id, ts, activity_type, amount, notes,
-               SUM(COALESCE(amount,0)) OVER (ORDER BY ts DESC, id DESC
-                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_from_newest
-        FROM limited
-        ORDER BY ts DESC, id DESC;
-        """,
-        [household_member_id, category, limit],
-    ).fetchall()
+            """,
+            [household_member_id, category, limit],
+        ).fetchall()
 
     if not limited_rows:
-        return [], total_all, 0, 0
+        return [], total_all, Decimal(0), 0
 
-    # Compute slice sum & running totals
-    slice_sum = 0
-    processed = []  # (id, ts, est_ts, activity_type, amount, notes, running_total)
-    for row in limited_rows:
-        _id, ts, activity_type, amount, notes, cum_from_newest = row
-        amt_val = amount if amount is not None else 0
+    slice_sum = Decimal(0)
+    processed = []
+    for _id, ts, activity_type, amount, notes, cum_from_newest in limited_rows:
+        amt_val = amount if amount is not None else Decimal(0)
         slice_sum += amt_val
         running_total = total_all - (cum_from_newest - amt_val)
-        # Convert timestamp to Eastern (America/New_York) for date grouping/display when possible.
-        est_ts = ts
-        try:
-            if ZoneInfo is not None:
-                # Treat naive timestamps as UTC for conversion consistency (db stores naive UTC)
-                if ts.tzinfo is None:
-                    ts_utc = ts.replace(tzinfo=ZoneInfo("UTC"))
-                else:
-                    ts_utc = ts
-                est_ts = ts_utc.astimezone(ZoneInfo("America/New_York"))
-        except Exception:
-            # Fall back to original ts on any error
-            est_ts = ts
-
-        processed.append((_id, ts, est_ts, activity_type, amount, notes, running_total))
+        local_ts = ts.astimezone(settings.LOCAL_TZ)
+        processed.append((_id, ts, local_ts, activity_type, amount, notes, running_total))
 
     prior_balance = total_all - slice_sum
     prior_count = max(total_count - len(limited_rows), 0)
@@ -376,143 +198,74 @@ def _category_report(household_member_id: int, category: str, limit: int = 50):
 
 
 def incentive_report(household_member_id: int, limit: int = 50):
-    """Return recent incentive history plus overall total and running totals."""
     return _category_report(household_member_id, "incentive", limit=limit)
 
 
 def allowance_report(household_member_id: int, limit: int = 50):
-    """Return recent allowance history plus overall total and running totals."""
     return _category_report(household_member_id, "allowance", limit=limit)
 
 
-def delete_activity(activity_id: int) -> int:
-    """Delete an activity row by id. Returns number of rows deleted."""
-    con = connect()
-    res = con.execute("""--sql
-        DELETE FROM activity WHERE id = ?
-        """, [activity_id])
-    # duckdb python API returns cursor; rowcount may not always be available; try to infer
-    try:
-        return res.rowcount if hasattr(res, 'rowcount') else 1
-    except Exception:
-        return 1
-
-
 def medication_summary(household_member_id: int, period: str = "week"):
-    """Return (period, medication_name, count, latest_notes) for the chosen period grouping."""
-    con = connect()
+    """Return (period, medication_name, count, latest_notes) grouped by ISO week or month in local time."""
     if period not in {"week", "month"}:
         period = "week"
-    grp_expr = "strftime('%Y-%W', ts)" if period == "week" else "strftime('%Y-%m', ts)"
-    rows = con.execute(
-        f"""--sql
-        WITH base AS (
-            SELECT {grp_expr} AS period, activity_type, notes, ts
-            FROM activity
-            WHERE household_member_id = ? AND category = 'medication'
-        ), counts AS (
-            SELECT period, activity_type, COUNT(*) AS count
+    fmt = "IYYY-IW" if period == "week" else "YYYY-MM"
+    with connection() as conn:
+        return conn.execute(
+            """--sql
+            WITH base AS (
+                SELECT to_char(ts AT TIME ZONE %s, %s) AS period, activity_type, notes, ts
+                FROM activity
+                WHERE household_member_id = %s AND category = 'medication'
+            )
+            SELECT period,
+                   activity_type,
+                   COUNT(*) AS count,
+                   (ARRAY_AGG(notes ORDER BY ts DESC))[1] AS latest_notes
             FROM base
-            GROUP BY 1,2
-        ), latest AS (
-            SELECT period, activity_type,
-                   ANY_VALUE(notes) FILTER (WHERE ts = max_ts) AS latest_notes
-            FROM (
-                SELECT period, activity_type, notes, ts,
-                       MAX(ts) OVER (PARTITION BY period, activity_type) AS max_ts
-                FROM base
-            ) x
             GROUP BY period, activity_type
-        )
-        SELECT c.period, c.activity_type, c.count, l.latest_notes
-        FROM counts c
-        LEFT JOIN latest l USING (period, activity_type)
-        ORDER BY c.period DESC, c.activity_type
-        LIMIT 100
-        """,
-        [household_member_id],
-    ).fetchall()
-    return rows
+            ORDER BY period DESC, activity_type
+            LIMIT 100
+            """,
+            [settings.LOCAL_TZ.key, fmt, household_member_id],
+        ).fetchall()
 
 
 def other_activity_report(household_member_id: int, limit: int = 100):
-    """Return list of 'other' activities (most recent first) plus aggregate counts and sum.
-
-    Each row: (timestamp, activity_type, amount, notes)
-    """
-    con = connect()
-    rows = con.execute(
-        """--sql
-        SELECT ts, activity_type, amount, notes
-        FROM activity
-        WHERE household_member_id = ? AND category = 'other'
-        ORDER BY ts DESC
-        LIMIT ?
-        """,
-        [household_member_id, limit],
-    ).fetchall()
-    agg = con.execute(
-        """--sql
-        SELECT COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total_amount
-        FROM activity
-        WHERE household_member_id = ? AND category = 'other'
-        """,
-        [household_member_id],
-    ).fetchone()
-    count = agg[0] if agg else 0
-    total_amt = agg[1] if agg else 0
-    return rows, count, total_amt
+    """Return (rows, count, total_amount) for 'other' activities, newest first."""
+    with connection() as conn:
+        rows = conn.execute(
+            """--sql
+            SELECT ts, activity_type, amount, notes
+            FROM activity
+            WHERE household_member_id = %s AND category = 'other'
+            ORDER BY ts DESC, id DESC
+            LIMIT %s
+            """,
+            [household_member_id, limit],
+        ).fetchall()
+        agg = conn.execute(
+            """--sql
+            SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total_amount
+            FROM activity
+            WHERE household_member_id = %s AND category = 'other'
+            """,
+            [household_member_id],
+        ).fetchone()
+    return rows, agg[0], agg[1]
 
 
-def incentive_total(household_member_id: int) -> int:
-    """Return total incentive points for a single member."""
-    con = connect()
-    row = con.execute(
-        """--sql
-        SELECT COALESCE(SUM(amount),0) FROM activity
-        WHERE household_member_id = ? AND category = 'incentive'
-        """,
-        [household_member_id],
-    ).fetchone()
-    return row[0] if row else 0
-
-
-def allowance_total(household_member_id: int) -> float:
-    """Return total allowance amount for a single member."""
-    con = connect()
-    row = con.execute(
-        """--sql
-        SELECT COALESCE(SUM(amount),0) FROM activity
-        WHERE household_member_id = ? AND category = 'allowance'
-        """,
-        [household_member_id],
-    ).fetchone()
-    return float(row[0]) if row else 0.0
-
-
-def incentive_totals_for_members() -> list[tuple[int, int]]:
-    """Return list of (member_id, total_points) for all members (zero where none)."""
-    con = connect()
-    return con.execute(
-        """--sql
-        SELECT hm.id, COALESCE(SUM(a.amount),0) AS total
-        FROM household_member hm
-        LEFT JOIN activity a ON a.household_member_id = hm.id AND a.category = 'incentive'
-        GROUP BY hm.id, hm.name
-        ORDER BY hm.name
-        """
-    ).fetchall()
-
-
-def allowance_totals_for_members() -> list[tuple[int, float]]:
-    """Return list of (member_id, total_allowance) for all members (zero where none)."""
-    con = connect()
-    return con.execute(
-        """--sql
-        SELECT hm.id, COALESCE(SUM(a.amount),0) AS total
-        FROM household_member hm
-        LEFT JOIN activity a ON a.household_member_id = hm.id AND a.category = 'allowance'
-        GROUP BY hm.id, hm.name
-        ORDER BY hm.name
-        """
-    ).fetchall()
+def category_totals_for_members(category: str) -> dict[int, Decimal]:
+    """Return {member_id: total_amount} for every member (zero where none)."""
+    with connection() as conn:
+        rows = conn.execute(
+            """--sql
+            SELECT hm.id, COALESCE(SUM(a.amount), 0) AS total
+            FROM household_member hm
+            LEFT JOIN activity a
+                   ON a.household_member_id = hm.id AND a.category = %s
+            GROUP BY hm.id
+            """,
+            [category],
+        ).fetchall()
+    return {mid: total for mid, total in rows}

@@ -1,34 +1,46 @@
 # personal-tracking
 
-## Development
-# Personal Tracking Application
-
-Basic family tracking app for chips (points) using DuckDB + FastAPI.
+Basic family tracking app for chips (points), allowance, medications and other activities using FastAPI + Azure Database for PostgreSQL.
 
 ## Features
 
-- Manage household members (seeded via CSV)
-- Log chip, medication, or other activities
-- View chips history and running total
+- Household members, incentives and medications stored in Postgres
+- Log chip, allowance, medication, or other activities
+- View chips/allowance history and running total
 - View medication counts weekly or monthly
 
 ## Tech Stack
 
 - Python 3.12
 - FastAPI
-- DuckDB (local file, path configurable via `DATA_DIR` env var)
+- Azure Database for PostgreSQL Flexible Server (`jsl6906`, database `personal_storage`, schema `personal_tracking`) via psycopg 3 + connection pool
 - uv for dependency management
 
 ## Setup (Local)
 
 Install uv if not already installed: <https://github.com/astral-sh/uv>
 
-Run the app:
+1. Copy `.env.example` to `.env` and set `DATABASE_URL` (the `personal_tracking_app` role's password is set by the server admin, see [sql/schema.sql](sql/schema.sql)).
+2. Run the app:
 
 ```bash
 uv sync
 uv run main.py
 ```
+
+### Database schema
+
+DDL lives in [sql/schema.sql](sql/schema.sql) (idempotent). The `personal_tracking` schema and its objects are owned by the least-privilege `personal_tracking_app` login role; the app never connects as an admin.
+
+### One-time migration from the legacy DuckDB file
+
+```bash
+uv sync --group migrate
+uv run scripts/migrate_duckdb_to_postgres.py --dry-run   # verify counts/sums, then roll back
+uv run scripts/migrate_duckdb_to_postgres.py             # commit
+```
+
+Defaults to the deployed file on `\\MediaServer\Docker\personal-tracking\data`; pass `--source` to override and `--truncate` to replace existing target rows.
 
 ### Git hooks (automatic docker build after commits)
 
@@ -91,7 +103,7 @@ Build and run with Docker Compose:
 docker compose up --build
 ```
 
-Persistent DuckDB storage is mounted to the named volume `personal_tracking_data`.
+The container reads `DATABASE_URL` from `.env` via `env_file`; no data volume is required anymore.
 
 ### Local Automatic Image Archive (Optional)
 
@@ -143,18 +155,24 @@ git config --unset core.hooksPath
 
 | Name | Description | Default |
 |------|-------------|---------|
-| DATA_DIR | Directory to store DuckDB database | ./data (host) / /data (container) |
+| DATABASE_URL | psycopg/libpq connection string for `personal_storage` (use `sslmode=require`) | required |
+| DB_SCHEMA | Postgres schema holding the app tables | personal_tracking |
+| DB_POOL_MIN / DB_POOL_MAX | Connection pool bounds | 1 / 4 |
+| APP_TZ | Display / input timezone | America/New_York |
+| LOG_FILE | Optional file to append logs to (stdout always on) | unset |
 | RELOAD | Enable auto-reload in development | 0 (disabled) |
 
 ## Project Structure
 
 ```text
 app/
-  db.py          # DB setup and query helpers
+  settings.py    # env/.env configuration
+  db.py          # psycopg pool and query helpers
   web.py         # FastAPI app and routes
   templates/     # Jinja2 templates
   static/        # CSS/static assets
-data/            # Seed CSV files
+sql/schema.sql   # Postgres DDL (idempotent)
+scripts/         # build + one-time migration tooling
 ```
 
 ## CI Image Artifact Workflow
