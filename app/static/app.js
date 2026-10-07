@@ -322,6 +322,24 @@
     if (spinning && (id === 'spinnerPanel' || id === 'spinOutcome')) e.preventDefault();
   });
 
+  // Enter/Tab out of a pick box saves it (form change/submit); then hop to the next empty box.
+  let advanceFrom = null;
+  document.addEventListener('keydown', (e) => {
+    const input = e.target.closest?.('.pick-form input[name=label]');
+    if (input && (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) && input.value.trim()) advanceFrom = input.id;
+  });
+  document.body.addEventListener('htmx:afterSettle', (e) => {
+    if (e.detail.target?.id !== 'spinnerPanel' || !advanceFrom) return;
+    const from = advanceFrom;
+    advanceFrom = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const inputs = [...document.querySelectorAll('.pick-form input[name=label]')];
+    const ids = [...document.querySelectorAll('.pick-row')].map((r) => r.querySelector('input[name=label]')?.id || r.dataset.pickId);
+    const start = ids.indexOf(from);
+    const next = inputs.find((i) => ids.indexOf(i.id) > start) || inputs[0];
+    next?.focus();
+  });
+
   // Movie picker dialog: close on X, backdrop click, or after a pick lands.
   document.addEventListener('click', (e) => {
     const dlg = document.getElementById('moviePicker');
@@ -330,6 +348,6 @@
   });
   document.body.addEventListener('htmx:afterRequest', (e) => {
     const dlg = document.getElementById('moviePicker');
-    if (dlg?.open && e.detail.successful && e.target.closest?.('.movie')) dlg.close();
+    if (dlg?.open && e.detail.successful && e.target.closest?.('.movie, .place')) dlg.close();
   });
 })();

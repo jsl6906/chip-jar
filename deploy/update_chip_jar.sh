@@ -4,6 +4,25 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TAR_DIR="$SCRIPT_DIR/container_files"
+ENV_FILE="$SCRIPT_DIR/.env"
+ENV_UPDATE="$SCRIPT_DIR/env.update"
+
+# Merge keys staged by publish.ps1 into .env (replace existing keys, append new ones, keep chmod 600).
+if [[ -f "$ENV_UPDATE" ]]; then
+  SUDO=""; [[ -w "$ENV_FILE" && -w "$SCRIPT_DIR" ]] || SUDO="sudo"
+  $SUDO cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
+  tmp="$(mktemp)"
+  awk -F= 'NR==FNR { sub(/\r$/, ""); if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) upd[$1]=1; next }
+           { sub(/\r$/, "") } NF && !($1 in upd)' "$ENV_UPDATE" <($SUDO cat "$ENV_FILE") > "$tmp"
+  tr -d '\r' < "$ENV_UPDATE" >> "$tmp"
+  $SUDO tee "$ENV_FILE" < "$tmp" > /dev/null
+  rm -f "$tmp"
+  # Backups hold secrets too; keep the 3 newest, all 600.
+  ls -1t "$ENV_FILE".bak-* 2>/dev/null | tail -n +4 | xargs -r $SUDO rm -f
+  $SUDO chmod 600 "$ENV_FILE" "$ENV_FILE".bak-*
+  $SUDO rm -f "$ENV_UPDATE" || echo "[WARN] Could not delete $ENV_UPDATE; remove it manually (it holds secrets)" >&2
+  echo "[INFO] .env keys: $($SUDO cut -d= -f1 "$ENV_FILE" | paste -sd, -)"
+fi
 
 latest_tar="$(ls -1t "$TAR_DIR"/chip-jar-*.tar 2>/dev/null | head -n1 || true)"
 if [[ -z "$latest_tar" ]]; then

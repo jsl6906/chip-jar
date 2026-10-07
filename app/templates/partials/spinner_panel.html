@@ -14,6 +14,7 @@
         <div class="ledger-sub">
           <strong>{{ picks|length }}</strong> of {{ members|length }} picks in
           {% if spinner.kind == 'movie' %} · Movie night{% if jellyfin_enabled %} · Jellyfin connected{% endif %}{% endif %}
+          {% if spinner.kind == 'restaurant' %} · Family spots within {{ max_drive }} min{% endif %}
         </div>
       </div>
       <div class="spin-head-actions">
@@ -53,13 +54,14 @@
     <section class="card picks" aria-labelledby="picksHead">
       <h2 id="picksHead" class="picks-head">Picks</h2>
       {% for m in members %}
-      <div class="pick-row" style="--member-color: var(--member-{{ (m.idx % 6) + 1 }});">
+      <div class="pick-row" data-pick-id="pick-{{ m.id }}" style="--member-color: var(--member-{{ (m.idx % 6) + 1 }});">
         <div class="avatar sm" aria-hidden="true">{{ m.name[:1]|upper }}</div>
         <div class="pick-body">
           <div class="pick-name">{{ m.name }}</div>
           {% if m.pick %}
           <div class="pick-label">
             {% if m.pick.jellyfin_item_id %}<img class="pick-thumb" src="/jellyfin/image/{{ m.pick.jellyfin_item_id }}" alt="" loading="lazy" />{% endif %}
+            {% if m.pick.place_id %}<img class="pick-thumb square" src="/places/photo/{{ m.pick.place_id }}" alt="" loading="lazy" />{% endif %}
             <span>{{ m.pick.label }}</span>
             <form method="post" action="/spin/{{ sid }}/pick/clear" hx-post="/spin/{{ sid }}/pick/clear" class="pick-clear">
               <input type="hidden" name="member_id" value="{{ m.id }}" />
@@ -67,11 +69,11 @@
             </form>
           </div>
           {% else %}
-          <form method="post" action="/spin/{{ sid }}/pick" hx-post="/spin/{{ sid }}/pick" class="pick-form">
+          {# Saves on blur/Tab (change) or Enter; the id lets htmx keep focus in the next field after the panel swap. #}
+          <form method="post" action="/spin/{{ sid }}/pick" hx-post="/spin/{{ sid }}/pick" hx-trigger="submit, change" class="pick-form">
             <input type="hidden" name="member_id" value="{{ m.id }}" />
-            <input type="text" name="label" maxlength="80" autocomplete="off" required
-                   placeholder="{{ 'Movie title…' if spinner.kind == 'movie' else 'What do you want?' }}" aria-label="{{ m.name }}'s pick" />
-            <button type="submit" class="btn btn-primary sm">Add</button>
+            <input type="text" id="pick-{{ m.id }}" name="label" maxlength="80" autocomplete="off" enterkeyhint="done"
+                   placeholder="{{ 'Movie title…' if spinner.kind == 'movie' else ('Restaurant name…' if spinner.kind == 'restaurant' else 'What do you want?') }}" aria-label="{{ m.name }}'s pick" />
           </form>
           {% if jellyfin_enabled %}
           <div class="pick-actions">
@@ -83,12 +85,24 @@
             </form>
           </div>
           {% endif %}
+          {% if places_enabled %}
+          <div class="pick-actions">
+            <button type="button" class="preset" hx-get="/spin/{{ sid }}/places?member_id={{ m.id }}" hx-target="#moviePickerBody" hx-swap="innerHTML">Browse nearby</button>
+            <form method="post" action="/spin/{{ sid }}/pick/random" hx-post="/spin/{{ sid }}/pick/random">
+              <input type="hidden" name="member_id" value="{{ m.id }}" />
+              <button type="submit" class="preset">Surprise me</button>
+            </form>
+          </div>
+          {% endif %}
           {% endif %}
         </div>
       </div>
       {% endfor %}
       {% if spinner.kind == 'movie' and not jellyfin_enabled %}
       <p class="hint">Set <code>JELLYFIN_URL</code> and <code>JELLYFIN_API_KEY</code> to get unwatched-movie suggestions here.</p>
+      {% endif %}
+      {% if spinner.kind == 'restaurant' and not places_enabled %}
+      <p class="hint">Set <code>GOOGLE_MAPS_API_KEY</code>, <code>HOME_LAT</code> and <code>HOME_LNG</code> to get nearby family-friendly suggestions here.</p>
       {% endif %}
     </section>
   </div>

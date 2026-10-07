@@ -23,6 +23,7 @@
       <div class="spinner-card-foot">
         <span class="badge">{{ s.picks }} pick{{ '' if s.picks == 1 else 's' }} in</span>
         {% if s.kind == 'movie' %}<span class="badge">Movie night</span>{% endif %}
+        {% if s.kind == 'restaurant' %}<span class="badge">Restaurants nearby</span>{% endif %}
       </div>
     </a>
     {% endfor %}
@@ -48,6 +49,7 @@
       <div class="segmented" role="radiogroup">
         <label><input type="radio" name="kind" value="generic" checked /><span>Anything</span></label>
         <label><input type="radio" name="kind" value="movie" /><span>Movies (Jellyfin)</span></label>
+        <label><input type="radio" name="kind" value="restaurant" /><span>Restaurants</span></label>
       </div>
     </fieldset>
     <div class="actions"><button type="submit" class="btn btn-primary">Create</button></div>

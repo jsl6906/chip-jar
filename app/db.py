@@ -423,7 +423,7 @@ def category_totals_for_members(category: str) -> dict[int, Decimal]:
 
 # --- spinners ----------------------------------------------------------------
 
-SPINNER_KINDS = ("generic", "movie")
+SPINNER_KINDS = ("generic", "movie", "restaurant")
 
 
 def list_spinners() -> list[dict]:
@@ -479,7 +479,7 @@ def spinner_picks(spinner_id: int) -> list[dict]:
     with connection() as conn:
         rows = conn.execute(
             """--sql
-            SELECT p.household_member_id, hm.name, p.label, p.jellyfin_item_id
+            SELECT p.household_member_id, hm.name, p.label, p.jellyfin_item_id, p.place_id
             FROM spinner_pick p
             JOIN household_member hm ON hm.id = p.household_member_id
             WHERE p.spinner_id = %s
@@ -487,19 +487,26 @@ def spinner_picks(spinner_id: int) -> list[dict]:
             """,
             [spinner_id],
         ).fetchall()
-    return [{"member_id": r[0], "member": r[1], "label": r[2], "jellyfin_item_id": r[3]} for r in rows]
+    return [{"member_id": r[0], "member": r[1], "label": r[2], "jellyfin_item_id": r[3], "place_id": r[4]} for r in rows]
 
 
-def set_pick(spinner_id: int, household_member_id: int, label: str, jellyfin_item_id: Optional[str] = None) -> None:
+def set_pick(
+    spinner_id: int,
+    household_member_id: int,
+    label: str,
+    jellyfin_item_id: Optional[str] = None,
+    place_id: Optional[str] = None,
+) -> None:
     with connection() as conn:
         conn.execute(
             """--sql
-            INSERT INTO spinner_pick (spinner_id, household_member_id, label, jellyfin_item_id)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO spinner_pick (spinner_id, household_member_id, label, jellyfin_item_id, place_id)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (spinner_id, household_member_id)
-            DO UPDATE SET label = EXCLUDED.label, jellyfin_item_id = EXCLUDED.jellyfin_item_id, updated_at = now()
+            DO UPDATE SET label = EXCLUDED.label, jellyfin_item_id = EXCLUDED.jellyfin_item_id,
+                          place_id = EXCLUDED.place_id, updated_at = now()
             """,
-            [spinner_id, household_member_id, label, jellyfin_item_id],
+            [spinner_id, household_member_id, label, jellyfin_item_id, place_id],
         )
 
 
@@ -520,21 +527,21 @@ def record_spin(spinner_id: int, winner: dict, options: list[dict]) -> int:
     with connection() as conn:
         row = conn.execute(
             """--sql
-            INSERT INTO spin_result (spinner_id, label, household_member_id, jellyfin_item_id, options)
-            VALUES (%s, %s, %s, %s, %s::jsonb)
+            INSERT INTO spin_result (spinner_id, label, household_member_id, jellyfin_item_id, place_id, options)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb)
             RETURNING id
             """,
-            [spinner_id, winner["label"], winner["member_id"], winner.get("jellyfin_item_id"), Jsonb(options)],
+            [spinner_id, winner["label"], winner["member_id"], winner.get("jellyfin_item_id"), winner.get("place_id"), Jsonb(options)],
         ).fetchone()
     return int(row[0])
 
 
 def spin_history(spinner_id: int, limit: int = 12) -> list[dict]:
-    """Most recent results, newest first: id, ts, label, member, member_id, jellyfin_item_id, option_count."""
+    """Most recent results, newest first: id, ts, label, member, member_id, jellyfin_item_id, place_id, option_count."""
     with connection() as conn:
         rows = conn.execute(
             """--sql
-            SELECT r.id, r.ts, r.label, hm.name, r.household_member_id, r.jellyfin_item_id,
+            SELECT r.id, r.ts, r.label, hm.name, r.household_member_id, r.jellyfin_item_id, r.place_id,
                    jsonb_array_length(r.options) AS option_count
             FROM spin_result r
             LEFT JOIN household_member hm ON hm.id = r.household_member_id
@@ -545,7 +552,7 @@ def spin_history(spinner_id: int, limit: int = 12) -> list[dict]:
             [spinner_id, limit],
         ).fetchall()
     return [
-        {"id": r[0], "ts": r[1], "label": r[2], "member": r[3], "member_id": r[4], "jellyfin_item_id": r[5], "option_count": r[6]}
+        {"id": r[0], "ts": r[1], "label": r[2], "member": r[3], "member_id": r[4], "jellyfin_item_id": r[5], "place_id": r[6], "option_count": r[7]}
         for r in rows
     ]
 
@@ -559,6 +566,19 @@ def recent_movie_ids(days: int = 90) -> set[str]:
             WHERE jellyfin_item_id IS NOT NULL AND ts >= now() - make_interval(days => %s)
             UNION
             SELECT jellyfin_item_id FROM spinner_pick WHERE jellyfin_item_id IS NOT NULL
+            """,
+            [days],
+        ).fetchall()
+    return {r[0] for r in rows}
+
+
+def recent_place_ids(days: int = 21) -> set[str]:
+    """Restaurants that won a spin within `days` (so suggestions favour somewhere new)."""
+    with connection() as conn:
+        rows = conn.execute(
+            """--sql
+            SELECT DISTINCT place_id FROM spin_result
+            WHERE place_id IS NOT NULL AND ts >= now() - make_interval(days => %s)
             """,
             [days],
         ).fetchall()

@@ -12,12 +12,16 @@
     <div class="winner-kicker">{{ 'And the winner is' if winner_idx is not none else 'Last spin' }} · {{ last.ts|fmt_rel }}</div>
     <div class="winner-main">
       {% if last.jellyfin_item_id %}<img class="winner-poster" src="/jellyfin/image/{{ last.jellyfin_item_id }}" alt="" />{% endif %}
+      {% if last.place_id %}<img class="winner-poster square" src="/places/photo/{{ last.place_id }}" alt="" />{% endif %}
       <div>
         <h2 class="winner-label">{{ last.label }}</h2>
         <p class="winner-sub">
           {% if last.member %}<span class="avatar sm inline" aria-hidden="true">{{ last.member[:1]|upper }}</span> {{ last.member }}'s pick{% endif %}
           {% if last.option_count > 1 %} · beat {{ last.option_count - 1 }} other{{ '' if last.option_count == 2 else 's' }}{% endif %}
         </p>
+        {% if last.place_id %}
+        <a class="btn btn-ghost sm mt-sm" href="https://www.google.com/maps/search/?api=1&amp;query={{ last.label|urlencode }}&amp;query_place_id={{ last.place_id|urlencode }}" target="_blank" rel="noopener">Directions ↗</a>
+        {% endif %}
       </div>
     </div>
   </section>
@@ -29,7 +33,7 @@
     <ol>
       {% for h in history[1:] %}
       <li style="--member-color: var(--member-{{ ((member_idx.get(h.member_id, 0)) % 6) + 1 }});">
-        {% if h.jellyfin_item_id %}<img class="hist-thumb" src="/jellyfin/image/{{ h.jellyfin_item_id }}" alt="" loading="lazy" />{% else %}<span class="hist-dot" aria-hidden="true"></span>{% endif %}
+        {% if h.jellyfin_item_id %}<img class="hist-thumb" src="/jellyfin/image/{{ h.jellyfin_item_id }}" alt="" loading="lazy" />{% elif h.place_id %}<img class="hist-thumb square" src="/places/photo/{{ h.place_id }}" alt="" loading="lazy" />{% else %}<span class="hist-dot" aria-hidden="true"></span>{% endif %}
         <div class="hist-body">
           <div class="hist-label">{{ h.label }}</div>
           <div class="hist-sub">{% if h.member %}{{ h.member }}'s pick · {% endif %}{{ h.option_count }} on the wheel</div>

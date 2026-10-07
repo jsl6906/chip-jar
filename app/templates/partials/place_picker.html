@@ -1,0 +1,24 @@
+{# expects: spinner, member, places, recent, categories, q, category, open_now, places_enabled, max_drive #}
+<div class="picker-head">
+  <h2>Pick a restaurant for {{ member.name }}</h2>
+  <button type="button" class="icon-btn" data-close-picker aria-label="Close">×</button>
+</div>
+<form class="picker-filters" method="get" action="/spin/{{ spinner.id }}/places"
+      hx-get="/spin/{{ spinner.id }}/places" hx-target="#placeGrid" hx-swap="outerHTML"
+      hx-trigger="change[target.type!='search'], submit" hx-sync="this:replace">
+  <input type="hidden" name="member_id" value="{{ member.id }}" />
+  <input type="hidden" name="grid" value="1" />
+  <div class="picker-search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search: tacos, Chick-fil-A, ice cream…" autocomplete="off" aria-label="Search restaurants" />
+    <button type="button" class="preset" hx-get="/spin/{{ spinner.id }}/places" hx-include="closest form" hx-vals='{"shuffle": "1"}'
+            hx-target="#placeGrid" hx-swap="outerHTML" title="Show them in a different order">Shuffle</button>
+  </div>
+  <div class="chip-row" role="radiogroup" aria-label="Type">
+    {% for key, label in categories.items() %}
+    <label class="chip"><input type="radio" name="category" value="{{ key }}" {% if category == key %}checked{% endif %} /><span>{{ label }}</span></label>
+    {% endfor %}
+    <label class="chip kids"><input type="checkbox" name="open_now" value="1" {% if open_now %}checked{% endif %} /><span>Open now</span></label>
+  </div>
+  <p class="hint">Family-friendly spots within {{ max_drive }} min of home, casual counter-service places first. Places you've won in the last 3 weeks drop to the bottom. Press Enter to search.</p>
+</form>
+{% include 'partials/place_grid.html' %}

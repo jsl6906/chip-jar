@@ -549,6 +549,29 @@ dialog.picker::backdrop { background: rgba(20, 16, 12, 0.55); backdrop-filter: b
 .movie-watched.fresh { color: var(--gain); font-weight: 800; }
 .movie.htmx-request { opacity: 0.5; }
 
+/* Restaurant picker */
+.pick-thumb.square, .hist-thumb.square { height: auto; aspect-ratio: 1; }
+.winner-poster.square { aspect-ratio: 4 / 3; width: 128px; }
+.place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-3); overflow-y: auto; max-height: 58vh; padding: 2px; }
+.place-grid .empty { grid-column: 1 / -1; }
+.place {
+	display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--sp-3); align-items: start; text-align: left;
+	padding: var(--sp-2); border: 1.5px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; cursor: pointer;
+	transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.place:hover, .place:focus-visible { transform: translateY(-2px); border-color: var(--accent); box-shadow: var(--shadow-sm); }
+.place.htmx-request { opacity: 0.5; }
+.place-photo { width: 88px; aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); display: grid; place-items: center; font-size: 2rem; }
+.place-photo img { width: 100%; height: 100%; object-fit: cover; }
+.place-body { display: grid; gap: 2px; min-width: 0; }
+.place-name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-meta { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-meta .stars { color: var(--cj-honey); font-weight: 800; }
+.place-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag { font-size: 0.68rem; font-weight: 800; padding: 0.1rem 0.45rem; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-muted); }
+.tag.good { background: color-mix(in srgb, var(--gain) 14%, var(--surface)); color: var(--gain-strong); }
+.tag.warn { background: color-mix(in srgb, var(--cj-honey) 22%, var(--surface)); color: var(--text); }
+
 @media (max-width: 520px) {
 	.card { padding: var(--sp-4); }
 }

@@ -1,0 +1,30 @@
+{# expects: spinner, member, places, recent, q, places_enabled, max_drive #}
+<div id="placeGrid" class="place-grid">
+  {% for p in places %}
+  <button type="button" class="place" hx-post="/spin/{{ spinner.id }}/pick" hx-target="#spinnerPanel" hx-swap="outerHTML"
+          hx-vals='{{ {"member_id": member.id, "place_id": p.id, "label": p.name[:80]}|tojson }}'>
+    <span class="place-photo">{% if p.photo_name %}<img src="/places/photo/{{ p.id }}" alt="" loading="lazy" />{% else %}{{ p.emoji }}{% endif %}</span>
+    <span class="place-body">
+      <span class="place-name">{{ p.name }}</span>
+      <span class="place-meta">
+        {% if p.rating %}<span class="stars">★ {{ '%.1f'|format(p.rating) }}</span> <span class="muted">({{ p.rating_count }})</span> · {% endif %}{{ p.type_label or 'Restaurant' }}{% if p.price_label %} · {{ p.price_label }}{% endif %}
+      </span>
+      <span class="place-meta">🚗 {{ p.drive_min }} min{% if p.address %} · {{ p.address }}{% endif %}</span>
+      <span class="place-tags">
+        {% if p.id in recent %}<span class="tag warn">Been recently</span>{% endif %}
+        {% if p.open_now is true %}<span class="tag good">Open now</span>{% elif p.open_now is false %}<span class="tag">Closed now</span>{% endif %}
+        {% if p.good_for_children %}<span class="tag good">Good for kids</span>{% endif %}
+        {% if p.menu_for_children %}<span class="tag good">Kids menu</span>{% endif %}
+        {% if p.casual %}<span class="tag">Casual</span>{% endif %}
+        {% if p.takeout %}<span class="tag">Takeout</span>{% endif %}
+      </span>
+    </span>
+  </button>
+  {% else %}
+  <p class="empty">
+    {% if not places_enabled %}Restaurant search isn't configured.
+    {% elif q %}No family-friendly matches for “{{ q }}” within {{ max_drive }} min.
+    {% else %}Nothing found within {{ max_drive }} min — try another type or turn off “Open now”.{% endif %}
+  </p>
+  {% endfor %}
+</div>

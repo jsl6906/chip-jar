@@ -5,7 +5,7 @@
   {% include 'partials/spinner_panel.html' %}
 </div>
 
-<dialog id="moviePicker" class="picker" aria-label="Pick a movie">
+<dialog id="moviePicker" class="picker" aria-label="{{ 'Pick a restaurant' if spinner.kind == 'restaurant' else 'Pick a movie' }}">
   <div id="moviePickerBody" class="picker-body"></div>
 </dialog>
 {% endblock %}

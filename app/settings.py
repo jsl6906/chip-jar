@@ -1,6 +1,7 @@
 """Runtime configuration loaded from environment / .env."""
 
 import os
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -26,3 +27,21 @@ JELLYFIN_API_KEY: str = os.environ.get("JELLYFIN_API_KEY", "")
 JELLYFIN_CACHE_TTL: int = int(os.environ.get("JELLYFIN_CACHE_TTL", "900"))
 # A movie counts as "watched recently" if anyone played it within this many days.
 JELLYFIN_RECENT_DAYS: int = int(os.environ.get("JELLYFIN_RECENT_DAYS", "365"))
+
+
+def _float_or_none(name: str) -> Optional[float]:
+    raw = os.environ.get(name, "").strip()
+    try:
+        return float(raw) if raw else None
+    except ValueError:
+        return None
+
+
+# Optional Google Places (New) + Routes integration for restaurant spinners; needs the key and home coords.
+GOOGLE_MAPS_API_KEY: str = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+HOME_LAT: Optional[float] = _float_or_none("HOME_LAT")
+HOME_LNG: Optional[float] = _float_or_none("HOME_LNG")
+RESTAURANT_MAX_DRIVE_MIN: int = int(os.environ.get("RESTAURANT_MAX_DRIVE_MIN", "15"))
+# Nearby Search returns at most 20 places, so keep the circle close to the drive limit (~0.5 km per minute).
+PLACES_SEARCH_RADIUS_M: int = int(os.environ.get("PLACES_SEARCH_RADIUS_M", str(RESTAURANT_MAX_DRIVE_MIN * 500)))
+PLACES_CACHE_TTL: int = int(os.environ.get("PLACES_CACHE_TTL", "86400"))

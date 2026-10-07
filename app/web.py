@@ -6,6 +6,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -13,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, jellyfin, settings
+from . import db, jellyfin, places, settings
 
 _handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
 if settings.LOG_FILE:
@@ -37,6 +38,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="ChipJar", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+# Appended as ?v= to CSS/JS URLs so browsers pick up new assets after a deploy.
+templates.env.globals["asset_v"] = max(int(p.stat().st_mtime) for p in Path("app/static").iterdir() if p.is_file())
 
 
 @app.middleware("http")
@@ -669,6 +672,8 @@ def _spinner_ctx(spinner: dict, winner_idx: Optional[int] = None, result_id: Opt
         "history": history,
         "last": history[0] if history else None,
         "jellyfin_enabled": jellyfin.enabled() and spinner["kind"] == "movie",
+        "places_enabled": places.enabled() and spinner["kind"] == "restaurant",
+        "max_drive": settings.RESTAURANT_MAX_DRIVE_MIN,
         "winner_idx": winner_idx,
         "result_id": result_id,
         "labels": [p["label"] for p in picks],
@@ -725,17 +730,22 @@ def spin_pick(
     member_id: int = Form(...),
     label: str = Form(""),
     jellyfin_item_id: Optional[str] = Form(None),
+    place_id: Optional[str] = Form(None),
 ):
     spinner = _get_spinner_or_404(spinner_id)
     label = label.strip()[:80]
     item_id = jellyfin_item_id.strip() if jellyfin_item_id and jellyfin.valid_item_id(jellyfin_item_id.strip()) else None
+    pid = place_id.strip() if place_id and places.valid_place_id(place_id.strip()) else None
     if item_id and not label:
         movie = jellyfin.get(item_id)
         label = _movie_label(movie) if movie else ""
+    if pid and not label:
+        place = places.get(pid)
+        label = place.name[:80] if place else ""
     if not label:
         db.clear_pick(spinner_id, member_id)
     else:
-        db.set_pick(spinner_id, member_id, label, item_id)
+        db.set_pick(spinner_id, member_id, label, item_id, pid)
     return _spinner_panel(request, spinner)
 
 
@@ -750,6 +760,16 @@ def spin_pick_clear(request: Request, spinner_id: int, member_id: int = Form(...
 def spin_pick_random(request: Request, spinner_id: int, member_id: int = Form(...), kids: Optional[str] = Form(None)):
     spinner = _get_spinner_or_404(spinner_id)
     toast = None
+    if spinner["kind"] == "restaurant":
+        taken = {p["place_id"] for p in db.spinner_picks(spinner_id) if p["place_id"]}
+        found = [p for p in places.search(avoid=db.recent_place_ids(), shuffle=True) if p.id not in taken] if places.enabled() else []
+        if found:
+            # Choose among the top few so it's a good spot, not just any spot.
+            place = secrets.choice(found[:8])
+            db.set_pick(spinner_id, member_id, place.name[:80], None, place.id)
+        else:
+            toast = {"kind": "error", "title": "No restaurant suggestions right now", "detail": "", "sub": "Check GOOGLE_MAPS_API_KEY / HOME_LAT / HOME_LNG."}
+        return _spinner_panel(request, spinner, toast=toast)
     movie = None
     if jellyfin.enabled():
         found = jellyfin.search(kids=kids == "1", exclude=db.recent_movie_ids(), limit=1)
@@ -778,7 +798,7 @@ def spin_go(request: Request, spinner_id: int):
         toast = {"kind": "error", "title": "Need at least two picks to spin", "detail": "", "sub": ""}
     else:
         winner_idx = secrets.randbelow(len(picks))
-        options = [{k: p[k] for k in ("label", "member_id", "member", "jellyfin_item_id")} for p in picks]
+        options = [{k: p[k] for k in ("label", "member_id", "member", "jellyfin_item_id", "place_id")} for p in picks]
         result_id = db.record_spin(spinner_id, picks[winner_idx], options)
         logger.info("Spin %s on spinner %s -> %r", result_id, spinner_id, picks[winner_idx]["label"])
     if not _is_partial(request):
@@ -817,6 +837,51 @@ def spin_movies(
     }
     name = "partials/movie_grid.html" if grid == "1" else "partials/movie_picker.html"
     return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
+@app.get("/spin/{spinner_id}/places", response_class=HTMLResponse)
+def spin_places(
+    request: Request,
+    spinner_id: int,
+    member_id: int,
+    q: str = "",
+    category: str = "casual",
+    open_now: str = "",
+    shuffle: str = "",
+    grid: str = "",
+):
+    spinner = _get_spinner_or_404(spinner_id)
+    member = next(({"id": mid, "name": name} for mid, name in db.list_household_members() if mid == member_id), None)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Unknown household member")
+    category = category if category in places.CATEGORIES else "casual"
+    recent = db.recent_place_ids()
+    found = places.search(q=q, category=category, open_now=open_now == "1", avoid=recent, shuffle=shuffle == "1") if places.enabled() else []
+    ctx = {
+        "spinner": spinner,
+        "member": member,
+        "places": found,
+        "recent": recent,
+        "categories": {k: v[0] for k, v in places.CATEGORIES.items()},
+        "q": q,
+        "category": category,
+        "open_now": open_now == "1",
+        "places_enabled": places.enabled(),
+        "max_drive": settings.RESTAURANT_MAX_DRIVE_MIN,
+    }
+    name = "partials/place_grid.html" if grid == "1" else "partials/place_picker.html"
+    return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
+@app.get("/places/photo/{place_id}")
+def place_photo(place_id: str):
+    if not places.valid_place_id(place_id):
+        raise HTTPException(status_code=404)
+    img = places.photo(place_id)
+    if img is None:
+        raise HTTPException(status_code=404)
+    data, content_type = img
+    return Response(content=data, media_type=content_type, headers={"Cache-Control": "public, max-age=604800"})
 
 
 @app.get("/jellyfin/image/{item_id}")
