@@ -107,5 +107,6 @@
     </section>
   </div>
 
-  {% include 'partials/spin_outcome.html' %}
+  {# The panel already emitted the toast above; don't let the outcome partial emit it again. #}
+  {% with toast = none %}{% include 'partials/spin_outcome.html' %}{% endwith %}
 </div>
