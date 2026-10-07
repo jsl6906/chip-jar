@@ -1,0 +1,24 @@
+{# expects: spinner, member, movies, genres, q, genre, kids, jellyfin_enabled #}
+<div class="picker-head">
+  <h2>Pick a movie for {{ member.name }}</h2>
+  <button type="button" class="icon-btn" data-close-picker aria-label="Close">×</button>
+</div>
+<form class="picker-filters" method="get" action="/spin/{{ spinner.id }}/movies"
+      hx-get="/spin/{{ spinner.id }}/movies" hx-target="#movieGrid" hx-swap="outerHTML"
+      hx-trigger="input delay:250ms, submit" hx-sync="this:replace">
+  <input type="hidden" name="member_id" value="{{ member.id }}" />
+  <input type="hidden" name="grid" value="1" />
+  <div class="picker-search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search your library…" autocomplete="off" aria-label="Search movies" />
+    <button type="submit" class="preset" title="Show a different set">Shuffle</button>
+  </div>
+  <div class="chip-row" role="radiogroup" aria-label="Genre">
+    <label class="chip"><input type="radio" name="genre" value="" {% if not genre %}checked{% endif %} /><span>All</span></label>
+    {% for g in genres %}
+    <label class="chip"><input type="radio" name="genre" value="{{ g }}" {% if genre == g %}checked{% endif %} /><span>{{ g }}</span></label>
+    {% endfor %}
+    <label class="chip kids"><input type="checkbox" name="kids" value="1" {% if kids %}checked{% endif %} /><span>Family-friendly</span></label>
+  </div>
+  <p class="hint">Showing films nobody has watched in the last {{ recent_days // 30 }} months — never-watched ones come up more often. Search to find anything.</p>
+</form>
+{% include 'partials/movie_grid.html' %}

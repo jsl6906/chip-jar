@@ -1,6 +1,6 @@
-# personal-tracking
+# chip-jar
 
-Basic family tracking app for chips (points), allowance, medications and other activities using FastAPI + Azure Database for PostgreSQL.
+ChipJar: family tracking app for chips (points), allowance, medications and other activities using FastAPI + HTMX + Azure Database for PostgreSQL.
 
 ## Features
 
@@ -40,37 +40,7 @@ uv run scripts/migrate_duckdb_to_postgres.py --dry-run   # verify counts/sums, t
 uv run scripts/migrate_duckdb_to_postgres.py             # commit
 ```
 
-Defaults to the deployed file on `\\MediaServer\Docker\personal-tracking\data`; pass `--source` to override and `--truncate` to replace existing target rows.
-
-### Git hooks (automatic docker build after commits)
-
-This repository includes a tracked hooks directory `.githooks` which contains cross-platform post-commit hooks that will attempt to build and save a Docker image tar after each commit.
-
-Commands:
-
-- Enable tracked hooks for this repo (preferred, keeps hooks under source control):
-
-```powershell
-git config core.hooksPath .githooks
-```
-
-- Install a local hook into the active hooks path (will detect `core.hooksPath` and install there):
-
-```powershell
-.\scripts\install_git_hook.ps1
-```
-
-- To disable tracked hooks and use the repository `.git/hooks` instead:
-
-```powershell
-git config --unset core.hooksPath
-```
-
-Notes:
-
-- The `.githooks` files include POSIX, CMD and PowerShell wrappers so hooks are usable across platforms.
-- The hook respects `PT_SKIP_TAR=1` to opt-out of building on a given machine.
-- The build logic is implemented in `scripts/build_image_tar.ps1`. The hooks now call that script with no arguments and the build script tags images by git commit SHA (or timestamp fallback).
+Pass `--source` with the path to the legacy `.duckdb` file; add `--truncate` to replace existing target rows.
 
 
 ### Development with Auto Reload
@@ -95,61 +65,50 @@ uv run main.py --host 127.0.0.1 --port 9000 --reload
 
 Visit: <http://localhost:8000>
 
-## Docker
-
-Build and run with Docker Compose:
+## Docker (local)
 
 ```bash
-docker compose up --build
+docker compose up -d --build
 ```
 
-The container reads `DATABASE_URL` from `.env` via `env_file`; no data volume is required anymore.
+The container reads `DATABASE_URL` from `.env` via `env_file` and runs read-only as a non-root user on port `${CHIP_JAR_PORT:-8000}`.
 
-### Local Automatic Image Archive (Optional)
+## Deploying to MediaServer
 
-This repo includes an optional local **post-commit** git hook that automatically builds the Docker image and saves a versioned tarball (no registry push required).
+The app runs as the `chip-jar` container in the main compose file on MediaServer, at <http://mediaserver:8000>.
+The share `\\MediaServer\Docker` is `/mnt/samsung_ssd/dockerconfig` on the server.
 
-Enable it:
+1. Build the image and copy it to the share. This writes `\\MediaServer\Docker\chip-jar\container_files\chip-jar-<timestamp>.tar` and refreshes `update_chip_jar.sh`:
 
-```bash
-git config core.hooksPath .githooks
-```
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File deploy\publish.ps1
+   ```
 
-After each non-doc commit you will see a `dist/personal-tracking-<tag>-<timestamp>.tar` plus `personal-tracking-latest.tar` (copy of the most recent build). The tag includes the short commit hash (e.g. `commit-a1b2c3d`). Markdown / docs-only commits are skipped to save time.
+2. On the server, load the image and recreate the container:
 
-Hook environments / overrides:
+   ```bash
+   ssh josh@mediaserver
+   bash /mnt/samsung_ssd/dockerconfig/chip-jar/update_chip_jar.sh
+   ```
 
-| Mechanism | Effect |
-|-----------|--------|
-| `PT_SKIP_TAR=1` | Skip build for that commit |
-| `-Keep <n>` (hook param) | Retain only last n tars (default 10) |
-| `-MultiArch` | Build multi-arch image (linux/amd64,linux/arm64) |
-| `-VerboseHook` | Extra verbose logging |
+   The script loads the newest tar, tags it `chip-jar:latest`, deletes older tars, runs `docker compose up -d --force-recreate chip-jar`, and waits for the container to report healthy.
 
-Old tars beyond retention are pruned (excluding the `*-latest.tar` file).
+Check with `docker logs -f chip-jar` or <http://mediaserver:8000/health>.
 
-Manually trigger (without new commit):
+Files on the server (`/mnt/samsung_ssd/dockerconfig/chip-jar/`):
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag manual -Keep 5
-# Multi-arch example (requires buildx)
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag ma -MultiArch
-# Build image only (no tar export)
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_image_tar.ps1 -Tag nosave -SkipSave
-```
+| Path | Purpose |
+|------|---------|
+| `.env` | `DATABASE_URL` for the `personal_tracking_app` role. Edited by hand, `chmod 600`. |
+| `container_files/` | Image tars from `publish.ps1`. |
+| `update_chip_jar.sh` | The update script (source: [deploy/update_chip_jar.sh](deploy/update_chip_jar.sh)). |
 
-Transfer to a server and load there:
+The `chip-jar` service is defined in `/mnt/samsung_ssd/dockerconfig/docker-compose.yaml`. It is also listed in `RESTART_CONTAINERS` in `scripts/azure-pg-firewall.env` and has an entry in `dashboard/services.yaml`.
 
-```bash
-scp dist/personal-tracking-latest.tar user@server:/tmp/
-ssh user@server "docker load -i /tmp/personal-tracking-latest.tar"
-```
+Notes:
 
-Disable hook (restore default hooks path):
-
-```bash
-git config --unset core.hooksPath
-```
+- `.env` changes take effect only after the container is recreated; `docker restart` does not reload the env file.
+- `publish.ps1` saves the image locally and then copies it, because `docker save` written straight to the SMB share can produce an empty file.
 
 ## Environment Variables
 
@@ -169,34 +128,16 @@ app/
   settings.py    # env/.env configuration
   db.py          # psycopg pool and query helpers
   web.py         # FastAPI app and routes
-  templates/     # Jinja2 templates
-  static/        # CSS/static assets
+  templates/     # Jinja2 templates (+ partials/ for HTMX swaps)
+  static/        # CSS, app.js, vendored htmx
+deploy/          # publish.ps1 (PC) + update_chip_jar.sh (server)
 sql/schema.sql   # Postgres DDL (idempotent)
-scripts/         # build + one-time migration tooling
+scripts/         # one-time DB bootstrap/migration tooling
 ```
 
-## CI Image Artifact Workflow
+## Notes
 
-A GitHub Actions workflow (`.github/workflows/docker-image-tar.yml`) builds and uploads a gzipped Docker image tar on pushes to `main` / `master` and manual dispatch.
+- The Postgres schema `personal_tracking` and role `personal_tracking_app` keep their original names.
 
-What it does:
-
-1. Builds image (`latest` and short SHA tags). Multi-arch optional via workflow dispatch input `multi_arch=true`.
-2. Exports `personal-tracking-<sha>.tar.gz` and a `.sha256` checksum file.
-3. Captures `image-id.json` (Docker image ID metadata).
-4. Attempts SBOM generation (SPDX JSON) via syft.
-5. Uploads artifacts with 14-day retention.
-
-Download artifacts from the workflow run page, then:
-
-```bash
-docker load -i personal-tracking-<sha>.tar.gz
-```
-
-## Notes / Next Steps
-
-- Add authentication/authorization for multi-user deployments
-- Add edit/delete activity capability
-- Add API endpoints (JSON) for potential frontend expansion
 - Add tests and CI workflow (expand test coverage)
 - Support exporting reports (CSV/PDF)

@@ -1,0 +1,46 @@
+{# expects: m (dashboard entry), idx (0-based member index for colour) #}
+<article class="member-card" id="member-{{ m.id }}" style="--member-color: var(--member-{{ (idx % 6) + 1 }});"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="member-head">
+    <div class="avatar" aria-hidden="true">{{ m.name[:1]|upper }}</div>
+    <div>
+      <div class="member-name">{{ m.name }}</div>
+      <div class="member-last">
+        {% if m.last %}
+          {% set a = m.last.amount %}
+          {% if m.last.category in ('incentive', 'allowance') and a is not none %}
+            <span class="delta {{ 'pos' if a > 0 else ('neg' if a < 0 else '') }}">{% if m.last.category == 'allowance' %}${{ a|fmt_money(true) }}{% else %}{{ a|fmt_signed }}{% endif %}</span> ·
+          {% endif %}
+          {{ m.last.activity_type }} · {{ m.last.ts|fmt_rel }}
+        {% else %}
+          No activity yet
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="balances">
+    <a class="balance" href="/report/incentives/{{ m.id }}">
+      <span class="label">Chips</span>
+      <span class="value chips {{ 'neg' if m.chips < 0 else '' }}">{{ m.chips|fmt_num }}</span>
+    </a>
+    <a class="balance" href="/report/allowance/{{ m.id }}">
+      <span class="label">Allowance</span>
+      <span class="value {{ 'neg' if m.allowance < 0 else '' }}">${{ m.allowance|fmt_money }}</span>
+    </a>
+  </div>
+
+  <div>
+    <svg class="spark" viewBox="0 0 120 36" preserveAspectRatio="none" aria-label="Chips balance, last 14 days">
+      {% set pts = m.series|spark_points %}
+      <polygon class="area" points="2,34 {{ pts }} 118,34" />
+      <polyline points="{{ pts }}" />
+    </svg>
+    <div class="spark-cap"><span>14 days ago</span><span>today</span></div>
+  </div>
+
+  <div class="member-links">
+    <a href="/report/medications/{{ m.id }}">Medications</a>
+    <a href="/report/other/{{ m.id }}">Other</a>
+    <button type="button" class="card-add" data-quick-member="{{ m.id }}" aria-label="Add activity for {{ m.name }}">+ Add</button>
+  </div>
+</article>

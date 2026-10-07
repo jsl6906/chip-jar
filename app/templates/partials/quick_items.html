@@ -1,0 +1,6 @@
+<div id="quickItems" class="quick-items" aria-live="polite"
+     hx-get="/quick-items" hx-swap="innerHTML"
+     hx-trigger="change[target.name=='household_member_id'||target.name=='category'] from:#quickAdd"
+     hx-include="#quickAdd [name=household_member_id]:checked, #quickAdd [name=category]:checked">
+  {% include 'partials/quick_items_list.html' %}
+</div>

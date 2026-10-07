@@ -14,8 +14,10 @@ wheels/
 
 # Data files
 *.duckdb
-data/personal_tracking.duckdb
 *.log
 
 # Secrets
 .env
+.env.*
+!.env.example
+secrets/

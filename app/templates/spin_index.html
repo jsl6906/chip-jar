@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Spin · ChipJar{% endblock %}
+{% block content %}
+
+<section class="section" aria-labelledby="spinHead">
+  <div class="section-head">
+    <h2 id="spinHead">Spinners</h2>
+    <span class="hint">Everyone picks, the wheel decides</span>
+  </div>
+  {% if spinners %}
+  <div class="dashboard">
+    {% for s in spinners %}
+    <a class="member-card spinner-card" href="/spin/{{ s.id }}" style="--member-color: var(--member-{{ (loop.index0 % 6) + 1 }});">
+      <div class="member-head">
+        <div class="spinner-emoji" aria-hidden="true">{{ s.emoji }}</div>
+        <div>
+          <div class="member-name">{{ s.name }}</div>
+          <div class="member-last">
+            {% if s.last_label %}Last: <strong>{{ s.last_label }}</strong> · {{ s.last_ts|fmt_rel }}{% else %}No spins yet{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="spinner-card-foot">
+        <span class="badge">{{ s.picks }} pick{{ '' if s.picks == 1 else 's' }} in</span>
+        {% if s.kind == 'movie' %}<span class="badge">Movie night</span>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="section" aria-labelledby="newSpinHead">
+  <div class="section-head"><h2 id="newSpinHead">New spinner</h2></div>
+  <form class="card quick-add" method="post" action="/spin">
+    <div class="fields two">
+      <label class="field"><span class="lbl">Name</span>
+        <input type="text" name="name" maxlength="60" placeholder="Game night, Dessert, Weekend trip…" autocomplete="off" required />
+      </label>
+      <label class="field"><span class="lbl">Icon</span>
+        <select name="emoji">
+          {% for e in emoji %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <fieldset>
+      <legend>Type</legend>
+      <div class="segmented" role="radiogroup">
+        <label><input type="radio" name="kind" value="generic" checked /><span>Anything</span></label>
+        <label><input type="radio" name="kind" value="movie" /><span>Movies (Jellyfin)</span></label>
+      </div>
+    </fieldset>
+    <div class="actions"><button type="submit" class="btn btn-primary">Create</button></div>
+  </form>
+</section>
+
+{% endblock %}

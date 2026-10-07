@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}{{ spinner.emoji }} {{ spinner.name }} · Spin · ChipJar{% endblock %}
+{% block content %}
+<div class="spin-shell" hx-target="#spinnerPanel" hx-swap="outerHTML">
+  {% include 'partials/spinner_panel.html' %}
+</div>
+
+<dialog id="moviePicker" class="picker" aria-label="Pick a movie">
+  <div id="moviePickerBody" class="picker-body"></div>
+</dialog>
+{% endblock %}

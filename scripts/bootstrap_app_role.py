@@ -56,7 +56,7 @@ def main() -> int:
     print(f"Password set on role {APP_ROLE} (as {admin_user}).")
 
     dsn = f"postgresql://{APP_ROLE}:{quote(new_password, safe='')}@{HOST}:5432/{DBNAME}?sslmode=require"
-    with psycopg.connect(dsn, application_name="personal-tracking-bootstrap") as app:
+    with psycopg.connect(dsn, application_name="chip-jar-bootstrap") as app:
         who, path = app.execute("SELECT current_user, current_setting('search_path')").fetchone()
     print(f"Verified login as {who}; search_path={path}")
 

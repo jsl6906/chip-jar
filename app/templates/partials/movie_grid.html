@@ -1,0 +1,19 @@
+{# expects: spinner, member, movies, q, jellyfin_enabled #}
+<div id="movieGrid" class="movie-grid">
+  {% for m in movies %}
+  <button type="button" class="movie" hx-post="/spin/{{ spinner.id }}/pick" hx-target="#spinnerPanel" hx-swap="outerHTML"
+          hx-vals='{{ {"member_id": member.id, "jellyfin_item_id": m.id}|tojson }}'
+          title="{{ m.overview[:240] }}{{ '…' if m.overview|length > 240 else '' }}">
+    <span class="poster">{% if m.has_image %}<img src="/jellyfin/image/{{ m.id }}" alt="" loading="lazy" />{% else %}🎬{% endif %}</span>
+    <span class="movie-title">{{ m.name }}</span>
+    <span class="movie-meta">{% if m.year %}{{ m.year }}{% endif %}{% if m.rating %} · {{ m.rating }}{% endif %}{% if m.runtime_min %} · {{ m.runtime_min }}m{% endif %}</span>
+    <span class="movie-watched {{ 'fresh' if not m.played }}">{{ m.watched_label }}</span>
+  </button>
+  {% else %}
+  <p class="empty">
+    {% if not jellyfin_enabled %}Jellyfin isn't configured.
+    {% elif q %}Nothing in the library matches “{{ q }}”.
+    {% else %}No unwatched movies match those filters — try another genre or search for a title.{% endif %}
+  </p>
+  {% endfor %}
+</div>

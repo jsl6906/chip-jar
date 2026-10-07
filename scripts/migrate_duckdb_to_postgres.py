@@ -2,7 +2,7 @@
 
 Usage:
     uv sync --group migrate
-    uv run scripts/migrate_duckdb_to_postgres.py [--source PATH] [--truncate] [--dry-run]
+    uv run scripts/migrate_duckdb_to_postgres.py --source PATH [--truncate] [--dry-run]
 
 Reads the DuckDB file read-only, applies sql/schema.sql, bulk-loads the four tables
 preserving ids, resets identity sequences, and verifies row counts / amount sums.
@@ -21,7 +21,6 @@ from psycopg import sql
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import settings  # noqa: E402
 
-DEFAULT_SOURCE = r"\\MediaServer\Docker\personal-tracking\data\personal_tracking.duckdb"
 SCHEMA_SQL = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 
 # (table, columns) in FK-safe load order
@@ -77,7 +76,7 @@ def target_counts(conn: psycopg.Connection) -> dict[str, int]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", default=DEFAULT_SOURCE, help="Path to the DuckDB file (opened read-only)")
+    ap.add_argument("--source", required=True, help="Path to the DuckDB file (opened read-only)")
     ap.add_argument("--truncate", action="store_true", help="Empty target tables before loading")
     ap.add_argument("--dry-run", action="store_true", help="Load inside a transaction, then roll back")
     args = ap.parse_args()
@@ -96,7 +95,7 @@ def main() -> int:
     for t, rows in source.items():
         print(f"source {t:<17} {len(rows):>6} rows")
 
-    with psycopg.connect(settings.DATABASE_URL, application_name="personal-tracking-migrate") as conn:
+    with psycopg.connect(settings.DATABASE_URL, application_name="chip-jar-migrate") as conn:
         conn.execute("SET timezone TO 'UTC'")
         conn.execute(SCHEMA_SQL.read_text(encoding="utf-8"))
 

@@ -1,0 +1,104 @@
+/* ChipJar design tokens */
+:root {
+	color-scheme: light dark;
+
+	/* Brand */
+	--cj-terracotta: #d9643a;
+	--cj-terracotta-deep: #b94e2a;
+	--cj-honey: #f2b134;
+	--cj-teal: #1b998b;
+	--cj-plum: #6c5ce7;
+	--cj-rose: #e2559c;
+	--cj-sky: #3b82c4;
+
+	/* Surfaces & text (light) */
+	--bg: #faf6f0;
+	--surface: #ffffff;
+	--surface-2: #f3ece3;
+	--surface-3: #ebe2d6;
+	--border: #e7dfd3;
+	--border-strong: #cdbfae;
+	--text: #2a2622;
+	--text-muted: #7a6f63;
+	--text-faint: #a89d90;
+
+	--accent: var(--cj-terracotta);
+	--accent-hover: var(--cj-terracotta-deep);
+	--accent-soft: #fbe9e0;
+	--on-accent: #ffffff;
+
+	--gain: #2e8b57;
+	--gain-strong: #1f6b42;
+	--loss: #c8402f;
+	--loss-strong: #9e2e21;
+	--warn: var(--cj-honey);
+
+	/* Member palette (cycled by index) */
+	--member-1: var(--cj-terracotta);
+	--member-2: var(--cj-teal);
+	--member-3: var(--cj-plum);
+	--member-4: #e4a010;
+	--member-5: var(--cj-rose);
+	--member-6: var(--cj-sky);
+
+	/* Type */
+	--font-display: "Nunito", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-body: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	--font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+	--fs-xs: 0.72rem;
+	--fs-sm: 0.84rem;
+	--fs-md: 1rem;
+	--fs-lg: 1.2rem;
+	--fs-xl: 1.55rem;
+	--fs-2xl: 2.1rem;
+
+	/* Space, shape, motion */
+	--sp-1: 0.25rem;
+	--sp-2: 0.5rem;
+	--sp-3: 0.75rem;
+	--sp-4: 1rem;
+	--sp-5: 1.5rem;
+	--sp-6: 2rem;
+	--sp-8: 3rem;
+	--radius-sm: 8px;
+	--radius: 14px;
+	--radius-lg: 22px;
+	--radius-pill: 999px;
+	--shadow-sm: 0 1px 2px rgba(42, 38, 34, 0.06), 0 2px 6px rgba(42, 38, 34, 0.05);
+	--shadow: 0 4px 12px rgba(42, 38, 34, 0.08), 0 12px 32px rgba(42, 38, 34, 0.08);
+	--focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 38%, transparent);
+	--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+	--dur: 180ms;
+	--dur-slow: 320ms;
+	--header-h: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #1d1a17;
+		--surface: #27231f;
+		--surface-2: #302b26;
+		--surface-3: #3a342e;
+		--border: #3a342e;
+		--border-strong: #554c43;
+		--text: #f1ebe3;
+		--text-muted: #b3a797;
+		--text-faint: #7f7466;
+		--accent: #e8784f;
+		--accent-hover: #f08a63;
+		--accent-soft: #3d2a22;
+		--gain: #4fbf7f;
+		--gain-strong: #7fd9a3;
+		--loss: #e5604c;
+		--loss-strong: #f28a7a;
+		--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.25);
+		--shadow: 0 4px 12px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.35);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--dur: 0ms;
+		--dur-slow: 0ms;
+	}
+}

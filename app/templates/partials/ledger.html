@@ -1,0 +1,162 @@
+{% set money = tab in ('incentive', 'allowance') %}
+{% set base_url = '/report/' ~ tab_path ~ '/' ~ member.id %}
+<div id="ledger" class="ledger{{ ' money' if money else '' }}" style="--member-color: var(--member-{{ (member.idx % 6) + 1 }});">
+
+  <div class="ledger-head">
+    <div class="ledger-card">
+      <div class="ledger-id">
+        <a class="back" href="/" aria-label="Back to family">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <div class="avatar" aria-hidden="true">{{ member.name[:1]|upper }}</div>
+        <div class="ledger-who">
+          <h1 class="ledger-name">{{ member.name }}</h1>
+          <div class="ledger-sub">
+            {% if tab == 'incentive' %}<strong class="{{ 'neg' if totals.incentive < 0 else '' }}">{{ totals.incentive|fmt_num }}</strong> chips
+            {% elif tab == 'allowance' %}<strong class="{{ 'neg' if totals.allowance < 0 else '' }}">{{ totals.allowance|fmt_amount('allowance', false) }}</strong> balance
+            {% elif tab == 'medication' %}<strong>{{ count }}</strong> dose{{ '' if count == 1 else 's' }} logged
+            {% else %}<strong>{{ count }}</strong> entr{{ 'y' if count == 1 else 'ies' }}
+            {% endif %}
+          </div>
+        </div>
+        {% if members|length > 1 %}
+        <nav class="member-switch" aria-label="Switch member">
+          {% for o in members if o.id != member.id %}
+          <a class="avatar sm" href="/report/{{ tab_path }}/{{ o.id }}" hx-get="/report/{{ tab_path }}/{{ o.id }}" hx-push-url="true"
+             style="--member-color: var(--member-{{ (o.idx % 6) + 1 }});" title="{{ o.name }}" aria-label="{{ o.name }}">{{ o.name[:1]|upper }}</a>
+          {% endfor %}
+        </nav>
+        {% endif %}
+      </div>
+
+      <nav class="tabs" aria-label="Ledger">
+        {% for key, (path, label) in tabs.items() %}
+        {% set url = '/report/' ~ path ~ '/' ~ member.id %}
+        <a href="{{ url }}" hx-get="{{ url }}" hx-push-url="true" {% if key == tab %}aria-current="page"{% endif %}>
+          {{ label }}
+          {% if key == 'incentive' %}<span class="tab-count">{{ totals.incentive|fmt_num }}</span>
+          {% elif key == 'allowance' %}<span class="tab-count">{{ totals.allowance|fmt_amount('allowance', false) }}</span>{% endif %}
+        </a>
+        {% endfor %}
+      </nav>
+    </div>
+  </div>
+
+  {% if med_grid and med_grid.rows %}
+  {% set g = med_grid %}
+  <section class="card med-grid" aria-label="Doses by day">
+    <div class="med-grid-head">
+      <a class="nav-btn" href="{{ base_url }}?week={{ g.week + 1 }}" hx-get="{{ base_url }}?week={{ g.week + 1 }}" hx-push-url="true" aria-label="Previous week">‹</a>
+      <strong>{{ 'This week' if g.week == 0 else g.label }}</strong>
+      {% if g.week > 0 %}
+      <a class="nav-btn" href="{{ base_url }}?week={{ g.week - 1 }}" hx-get="{{ base_url }}?week={{ g.week - 1 }}" hx-push-url="true" aria-label="Next week">›</a>
+      {% else %}<span class="nav-btn" aria-hidden="true"></span>{% endif %}
+    </div>
+    <table class="dot-table">
+      <thead>
+        <tr>
+          <th scope="col"><span class="visually-hidden">Medication</span></th>
+          {% for d in g.days %}
+          <th scope="col" class="{{ 'is-today' if d == g.today else '' }}"><span class="dow">{{ d.strftime('%a')[:2] }}</span><span class="dom">{{ d.day }}</span></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in g.rows %}
+        <tr>
+          <th scope="row" title="{{ r.total }} dose{{ '' if r.total == 1 else 's' }}">{{ r.name }}</th>
+          {% for n in r.cells %}
+          {% set d = g.days[loop.index0] %}
+          <td class="{{ 'is-today' if d == g.today else '' }}">
+            <span class="dot{{ ' on' if n else '' }}" title="{{ r.name }} · {{ d.strftime('%a %b') }} {{ d.day }}: {{ n }} dose{{ '' if n == 1 else 's' }}">{% if n > 1 %}{{ n }}{% endif %}</span>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if med_summary %}
+  <details class="card med-summary">
+    <summary>Totals by {{ period }}</summary>
+    <div class="period-toggle">
+      {% for p, plabel in [('week', 'Weekly'), ('month', 'Monthly')] %}
+      <a href="{{ base_url }}?period={{ p }}" hx-get="{{ base_url }}?period={{ p }}" hx-push-url="true" {% if p == period %}aria-current="true"{% endif %}>{{ plabel }}</a>
+      {% endfor %}
+    </div>
+    <table class="mini-table">
+      <thead><tr><th>{{ 'Week' if period == 'week' else 'Month' }}</th><th>Medication</th><th class="num">Doses</th></tr></thead>
+      <tbody>
+        {% for period_val, med, n, _notes in med_summary %}
+        <tr><td>{{ period_val }}</td><td>{{ med }}</td><td class="num">{{ n }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
+  {% if days %}
+  {% for day in days %}
+  <section class="day" aria-label="{{ day.label }}">
+    <h2 class="day-head">
+      <span>{{ day.label }}</span>
+      {% if money %}
+      <span class="day-net {{ 'pos' if day.net > 0 else ('neg' if day.net < 0 else '') }}">{{ day.net|fmt_amount(tab) if day.net else '±0' }}</span>
+      {% else %}
+      <span class="day-net">{{ day.entries|length }}</span>
+      {% endif %}
+    </h2>
+    <ul class="entries">
+      {% for e in day.entries %}
+      <li class="entry{{ ' is-new' if e.id == highlight else '' }}" id="entry-{{ e.id }}">
+        <form class="entry-delete" method="post" action="/activity/delete"
+              hx-post="/activity/delete" hx-swap="outerHTML swap:180ms">
+          <input type="hidden" name="activity_id" value="{{ e.id }}" />
+          <input type="hidden" name="member_id" value="{{ member.id }}" />
+          <input type="hidden" name="report" value="{{ tab }}" />
+          <input type="hidden" name="limit" value="{{ limit }}" />
+          <button type="submit" aria-label="Delete {{ e.activity_type }}" title="Delete">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Delete</span>
+          </button>
+        </form>
+        <div class="entry-main">
+          <time class="entry-time" datetime="{{ e.ts.isoformat() }}">{{ (e.local_ts|fmt_ts('%I:%M%p')).lstrip('0')|lower }}</time>
+          <div class="entry-what">
+            <span class="entry-title">{{ e.activity_type }}</span>
+            {% if e.notes %}<span class="entry-note">{{ e.notes }}</span>{% endif %}
+          </div>
+          <div class="entry-amt">
+            {% if e.amount is not none %}
+              {% if tab == 'medication' %}<span class="dose">×{{ e.amount|fmt_num }}</span>
+              {% else %}<span class="{{ e.amount|amt_class }}">{{ e.amount|fmt_amount(tab) }}</span>{% endif %}
+            {% endif %}
+          </div>
+          {% if money %}<div class="entry-run" title="Balance after">{{ e.running|fmt_amount(tab, false) }}</div>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+
+  <div class="ledger-foot">
+    {% if money and prior_count %}
+    <span class="muted">{{ prior_count }} earlier entr{{ 'y' if prior_count == 1 else 'ies' }} · opening balance <strong>{{ prior_balance|fmt_amount(tab, false) }}</strong></span>
+    {% endif %}
+    {% if has_more %}
+    {% set more_url = base_url ~ '?limit=' ~ (limit * 2) ~ ('&period=' ~ period if tab == 'medication' else '') %}
+    <a class="btn btn-ghost" href="{{ more_url }}" hx-get="{{ more_url }}" hx-push-url="true">Show more</a>
+    {% endif %}
+    <p class="hint"><span class="hint-touch">Swipe an entry left to delete it.</span><span class="hint-pointer">Hover an entry to delete it.</span></p>
+  </div>
+  {% else %}
+  <div class="card empty">
+    <svg class="mark"><use href="#i-jar"/></svg>
+    <p>No {{ tabs[tab][1]|lower }} activity for {{ member.name }} yet.</p>
+    <a class="btn btn-ghost mt-md" href="/?member_id={{ member.id }}&cat={{ tab }}">Add some</a>
+  </div>
+  {% endif %}
+</div>

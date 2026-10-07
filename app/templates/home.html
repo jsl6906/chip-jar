@@ -1,182 +1,141 @@
 {% extends 'base.html' %}
+{% block title %}ChipJar · Home{% endblock %}
 {% block content %}
-<section class="card add-activity">
-  <h2>Add Activity</h2>
-  {% if added %}
-  <div class="flash success" id="flashMsg">
-    {% set cat = request.query_params.get('cat') %}
-    {% set act = request.query_params.get('act') %}
-    {% set pts = request.query_params.get('pts') %}
-    {% set ts = request.query_params.get('ts') %}
-    {% if act %}
-      {% if pts %}
-        Recorded {{ cat }}: <strong>{{ act }}</strong>
-        {% if cat == 'allowance' %}${{ pts|fmt_money(true) }}{% else %}{% if pts|int > 0 %}+{% endif %}{{ pts }} point{{ 's' if pts|int != 1 else '' }}{% endif %}
-        {% if ts %}<span style="opacity:.7;">at {{ ts }}</span>{% endif %}.
-      {% else %}
-        Recorded {{ cat }}: <strong>{{ act }}</strong>{% if ts %} <span style="opacity:.7;">at {{ ts }}</span>{% endif %}.
-      {% endif %}
-    {% else %}
-      Activity recorded successfully.
-    {% endif %}
+
+<section class="section" aria-labelledby="famHead">
+  <div class="section-head">
+    <h2 id="famHead">The family</h2>
+    <span class="hint">Tap a balance to see its ledger</span>
+  </div>
+  {% if dashboard %}
+  <div class="dashboard">
+    {% for m in dashboard %}{% set idx = loop.index0 %}{% include 'partials/member_card.html' %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty">
+    <svg class="mark"><use href="#i-jar"/></svg>
+    <p>No household members yet. Add some to the <code>household_member</code> table to get started.</p>
   </div>
   {% endif %}
-  <form method="post" action="/activity" class="activity-form add-activity">
-    <div class="inline-grid">
-      <label class="field"><span class="lbl">Member</span>
-        <select name="household_member_id" required>
-          {% for id, name in members %}
-          <option value="{{ id }}" {% if request.query_params.get('member_id') == (id|string) %}selected{% endif %}>{{ name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="field"><span class="lbl">Category</span>
-        <select name="category" id="category" required onchange="toggleCategory()">
-          {% set selected_cat = request.query_params.get('cat') or 'incentive' %}
-          <option value="incentive" {% if selected_cat == 'incentive' %}selected{% endif %}>Chips</option>
-          <option value="allowance" {% if selected_cat == 'allowance' %}selected{% endif %}>Allowance</option>
-          <option value="medication" {% if selected_cat == 'medication' %}selected{% endif %}>Medication</option>
-          <option value="other" {% if selected_cat == 'other' %}selected{% endif %}>Other</option>
-        </select>
-      </label>
-      <div id="incentiveOptions">
-        <label class="field"><span class="lbl">Amount</span>
-          <input class="field-input" type="number" name="amount" id="incentiveAmount" placeholder="e.g., +10 or -5" required />
+</section>
+
+<section id="addSection" class="section add-section" aria-labelledby="addHead" tabindex="-1">
+  <div class="section-head sheet-bar">
+    <span class="sheet-handle" aria-hidden="true"></span>
+    <h2 id="addHead">Add activity</h2>
+    <button type="button" class="sheet-close" data-close-sheet aria-label="Close">×</button>
+  </div>
+  <form id="quickAdd" class="card quick-add" method="post" action="/activity"
+        hx-post="/activity" hx-swap="none" hx-disabled-elt="find button[type=submit]" hx-disinherit="hx-disabled-elt">
+
+    <fieldset>
+      <legend>Who</legend>
+      <div class="member-picker">
+        {% for m in dashboard %}
+        <label style="--member-color: var(--member-{{ (loop.index0 % 6) + 1 }});">
+          <input type="radio" name="household_member_id" value="{{ m.id }}"
+                 {% if selected_member == m.id %}checked{% endif %} required />
+          <span><span class="avatar sm" aria-hidden="true">{{ m.name[:1]|upper }}</span>{{ m.name }}</span>
         </label>
-        <label class="field"><span class="lbl">Note</span>
-          <input class="field-input" type="text" name="activity_type" id="incentiveNote" placeholder="Describe the activity" data-cat="incentive" required />
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>What</legend>
+      <div class="segmented" role="radiogroup">
+        {% for value, label in [('incentive','Chips'), ('allowance','Allowance'), ('medication','Meds'), ('other','Other')] %}
+        <label><input type="radio" name="category" value="{{ value }}" {% if selected_cat == value %}checked{% endif %} /><span>{{ label }}</span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    {% include 'partials/quick_items.html' %}
+
+    <div class="cat-panel" data-cat="incentive">
+      <div class="fields">
+        <label class="field"><span class="lbl">Chips</span>
+          <input type="number" name="amount" inputmode="numeric" placeholder="+5" required />
+        </label>
+        <label class="field"><span class="lbl">For</span>
+          <input type="text" name="activity_type" placeholder="What was it for?" autocomplete="off" required />
         </label>
       </div>
-      <div id="allowanceOptions" style="display:none;">
+      {% if chip_presets %}
+      <div class="presets" aria-label="Amounts">
+        {% for pts in chip_presets %}
+        <button type="button" class="preset {{ 'pos' if pts > 0 else 'neg' }}" data-amount="{{ pts }}">{{ pts|fmt_signed }}</button>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="cat-panel" data-cat="allowance" hidden>
+      <div class="fields">
         <label class="field"><span class="lbl">Amount ($)</span>
-          <input class="field-input" type="number" step="0.01" name="amount" id="allowanceAmount" placeholder="e.g., +10.50 or -5.25" required />
+          <input type="number" name="amount" step="0.01" inputmode="decimal" placeholder="+10.00" required />
         </label>
-        <label class="field"><span class="lbl">Note</span>
-          <input class="field-input" type="text" name="activity_type" id="allowanceNote" placeholder="Describe the activity" data-cat="allowance" required />
+        <label class="field"><span class="lbl">For</span>
+          <input type="text" name="activity_type" placeholder="What was it for?" autocomplete="off" required />
         </label>
       </div>
-      <div id="medicationOptions" style="display:none;">
-        <label class="field"><span class="lbl">Medication</span>
-          <select name="activity_type" id="medicationSelect" data-cat="medication">
+      <div class="presets" aria-label="Quick amounts">
+        {% for v in ['5', '10', '20', '-5', '-10'] %}
+        <button type="button" class="preset {{ 'neg' if v.startswith('-') else 'pos' }}" data-amount="{{ v }}">{{ '+' if not v.startswith('-') else '-' }}${{ v|replace('-', '') }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="cat-panel" data-cat="medication" hidden>
+      <div class="fields">
+        <label class="field span-2"><span class="lbl">Medication</span>
+          <select name="activity_type">
             {% for name, description, dose in medications %}
-            <option value="{{ name }}">{{ name }} (dose {{ dose }})</option>
+            <option value="{{ name }}">{{ name }} · dose {{ dose }}{% if description %} · {{ description }}{% endif %}</option>
             {% endfor %}
           </select>
         </label>
       </div>
-      <div id="otherOptions" style="display:none;">
-        <label class="field"><span class="lbl">Desc</span>
-          <input class="field-input" type="text" name="activity_type" id="otherInput" placeholder="Describe activity" data-cat="other" />
-        </label>
+    </div>
+
+    <div class="cat-panel" data-cat="other" hidden>
+      <div class="fields">
         <label class="field"><span class="lbl">Amount</span>
-          <input class="field-input" type="number" name="amount" id="amountInput" />
+          <input type="number" name="amount" inputmode="numeric" placeholder="optional" />
+        </label>
+        <label class="field"><span class="lbl">Description</span>
+          <input type="text" name="activity_type" placeholder="What happened?" autocomplete="off" required />
         </label>
       </div>
     </div>
-    <button type="button" class="toggle-adv" onclick="toggleAdvanced()" aria-expanded="false" id="advToggle">Show advanced ▾</button>
-    <div class="advanced-fields" id="advancedFields">
-      <div class="inline-grid">
-        <label class="field"><span class="lbl">When</span>
-          <input class="field-input" type="datetime-local" name="when" id="whenInput" />
-        </label>
-        <label id="notesLabel" class="field"><span class="lbl">Note</span>
-          <input class="field-input" type="text" name="notes" id="notesInput" />
+
+    <div class="fields">
+      <label class="field span-2" data-notes hidden><span class="lbl">Note</span>
+        <input type="text" name="notes" placeholder="Optional note" autocomplete="off" />
+      </label>
+    </div>
+
+    <fieldset>
+      <legend>When</legend>
+      <div class="when-row">
+        <button type="button" class="preset" data-when="now" aria-pressed="true">Now</button>
+        <button type="button" class="preset" data-when="yesterday" aria-pressed="false">Yesterday</button>
+        <button type="button" class="preset" data-when="pick" aria-pressed="false">Pick a time…</button>
+        <label class="field" data-when-wrap hidden><span class="visually-hidden">Date and time</span>
+          <input type="datetime-local" name="when" />
         </label>
       </div>
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Add it</button>
     </div>
-    <button type="submit">Add</button>
   </form>
 </section>
-<section class="card">
-  <h2>Reports</h2>
-  <ul>
-    {% for id, name in members %}
-    <li>
-      {{ name }}:
-  <a href="/report/incentives/{{ id }}">Chips ({{ incentive_totals.get(id, 0)|fmt_num }})</a> |
-      <a href="/report/allowance/{{ id }}">Allowance (${{ allowance_totals.get(id, 0)|fmt_money }})</a> |
-      <a href="/report/medications/{{ id }}">Medications</a> |
-      <a href="/report/other/{{ id }}">Other</a>
-    </li>
-    {% endfor %}
-  </ul>
-</section>
-<script>
-function toggleCategory(){
-  const cat = document.getElementById('category').value;
-  document.getElementById('incentiveOptions').style.display = cat==='incentive' ? '' : 'none';
-  document.getElementById('allowanceOptions').style.display = cat==='allowance' ? '' : 'none';
-  document.getElementById('medicationOptions').style.display = cat==='medication' ? '' : 'none';
-  document.getElementById('otherOptions').style.display = cat==='other' ? '' : 'none';
-  // Disable non-active activity_type inputs so only one submits
-  const incentiveNote = document.getElementById('incentiveNote');
-  const allowanceNote = document.getElementById('allowanceNote');
-  const medicationSel = document.getElementById('medicationSelect');
-  const otherInput = document.getElementById('otherInput');
-  incentiveNote.disabled = cat !== 'incentive';
-  allowanceNote.disabled = cat !== 'allowance';
-  medicationSel.disabled = cat !== 'medication';
-  otherInput.disabled = cat !== 'other';
-  // Amount handling
-  const incentiveAmount = document.getElementById('incentiveAmount');
-  const allowanceAmount = document.getElementById('allowanceAmount');
-  const amountInput = document.getElementById('amountInput');
-  if(cat === 'incentive'){
-    incentiveAmount.disabled = false;
-    allowanceAmount.value = '';
-    allowanceAmount.disabled = true;
-    amountInput.value = '';
-    amountInput.disabled = true;
-  } else if(cat === 'allowance'){
-    incentiveAmount.value = '';
-    incentiveAmount.disabled = true;
-    allowanceAmount.disabled = false;
-    amountInput.value = '';
-    amountInput.disabled = true;
-  } else if(cat === 'other'){
-    incentiveAmount.value = '';
-    incentiveAmount.disabled = true;
-    allowanceAmount.value = '';
-    allowanceAmount.disabled = true;
-    amountInput.disabled = false;
-  } else {
-    incentiveAmount.value = '';
-    incentiveAmount.disabled = true;
-    allowanceAmount.value = '';
-    allowanceAmount.disabled = true;
-    amountInput.value = '';
-    amountInput.disabled = true;
-  }
-  // Notes handling: hide and disable for incentive
-  const notesLabel = document.getElementById('notesLabel');
-  const notesInput = document.getElementById('notesInput');
-  if(cat === 'incentive' || cat === 'allowance'){
-    notesLabel.style.display = 'none';
-    notesInput.disabled = true;
-    notesInput.value = '';
-  } else {
-    notesLabel.style.display = '';
-    notesInput.disabled = false;
-  }
-}
-// initialize state on load
-toggleCategory();
-// Prefill datetime-local with current local time (truncate seconds for simplicity)
-(function(){
-  const inp = document.getElementById('whenInput');
-  if(!inp) return;
-  const d = new Date();
-  d.setSeconds(0,0);
-  const pad = n=> String(n).padStart(2,'0');
-  const val = d.getFullYear()+ '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-  inp.value = val;
-})();
-function toggleAdvanced(){
-  const container = document.getElementById('advancedFields');
-  const btn = document.getElementById('advToggle');
-  const visible = container.classList.toggle('visible');
-  btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
-  btn.textContent = visible ? 'Hide advanced ▴' : 'Show advanced ▾';
-}
-</script>
+
+<div class="sheet-backdrop" data-close-sheet aria-hidden="true"></div>
+<button type="button" class="btn btn-primary fab" data-open-sheet aria-controls="addSection" aria-expanded="false">
+  <span aria-hidden="true">+</span> Add
+</button>
+
 {% endblock %}

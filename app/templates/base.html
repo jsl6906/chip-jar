@@ -1,27 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Personal Tracking</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#faf6f0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1d1a17" media="(prefers-color-scheme: dark)" />
+  <title>{% block title %}ChipJar{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/base.css" />
+  <link rel="stylesheet" href="/static/components.css" />
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <header>
-    <h1>Personal Tracking</h1>
-    <nav>
-      <a href="/">Home</a>
-    </nav>
-  </header>
-  <main>
-    <div class="page-container">
-      {% block content %}{% endblock %}
+  <svg hidden aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-jar" viewBox="0 0 64 64">
+      <path d="M14 20h36v30a8 8 0 0 1-8 8H22a8 8 0 0 1-8-8z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+      <rect x="18" y="10" width="28" height="10" rx="4" fill="currentColor"/>
+      <ellipse cx="32" cy="46" rx="11" ry="3.5" fill="currentColor" opacity=".55"/>
+      <ellipse cx="32" cy="40" rx="11" ry="3.5" fill="currentColor" opacity=".75"/>
+      <ellipse cx="32" cy="34" rx="11" ry="3.5" fill="currentColor"/>
+    </symbol>
+  </svg>
+
+  <header class="site-header">
+    <div class="inner">
+      <a class="brand" href="/" aria-label="ChipJar home">
+        <svg class="mark"><use href="#i-jar"/></svg>
+        <span class="wordmark">Chip<em>Jar</em></span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Home</a>
+        <a href="/spin" {% if request.url.path.startswith('/spin') %}aria-current="page"{% endif %}>Spin</a>
+      </nav>
     </div>
+  </header>
+
+  <main id="main">
+    {% block content %}{% endblock %}
   </main>
-  <footer>
-    <!-- Footer intentionally left blank -->
-  </footer>
-</footer>
-{% block scripts %}{% endblock %}
+
+  <footer class="site-footer">ChipJar · family chips, allowance &amp; meds</footer>
+
+  <div id="toasts" class="toast-region" role="status" aria-live="polite">
+    {% if toast %}{% include 'partials/toast.html' %}{% endif %}
+  </div>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

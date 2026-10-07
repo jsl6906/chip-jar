@@ -1,0 +1,12 @@
+{# expects: toast = {kind, title, detail, sub, ttl?, action?: {label, url, vals, target?, swap?}} #}
+<div class="toast {{ toast.kind }}" data-ttl="{{ toast.ttl or 4500 }}">
+  <div class="toast-body">
+    {{ toast.title }}{% if toast.detail %} · <strong>{{ toast.detail }}</strong>{% endif %}
+    {% if toast.sub %}<small>{{ toast.sub }}</small>{% endif %}
+  </div>
+  {% if toast.action %}
+  <button type="button" class="toast-action" hx-post="{{ toast.action.url }}" hx-vals='{{ toast.action.vals|tojson }}'
+          hx-target="{{ toast.action.target or '#ledger' }}" hx-swap="{{ toast.action.swap or 'outerHTML' }}">{{ toast.action.label }}</button>
+  {% endif %}
+  <button type="button" class="toast-close" aria-label="Dismiss">×</button>
+</div>

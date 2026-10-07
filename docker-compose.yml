@@ -1,18 +1,26 @@
+# Run the image locally:  docker compose up -d --build   (reads ./.env)
 services:
-  personal-tracking:
-    image: "personal-tracking:latest"
-    container_name: personal-tracking
-    ports:
-      - "8000:8000"
+  chip-jar:
+    build: .
+    image: chip-jar:latest
+    container_name: chip-jar
+    restart: unless-stopped
     # DATABASE_URL (and optional overrides) live in .env; never bake them into the image.
-    env_file:
-      - .env
+    env_file: .env
     environment:
       - TZ=America/New_York
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+    ports:
+      - "${CHIP_JAR_PORT:-8000}:8000"
+    mem_limit: 512m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,97 @@
+{# expects: spinner, members, picks, segments, gradient, can_spin, history, last, jellyfin_enabled, partial, toast? #}
+{% set sid = spinner.id %}
+<div id="spinnerPanel" class="spinner" data-spinner-id="{{ sid }}">
+  {% if toast and partial %}<div hx-swap-oob="beforeend:#toasts">{% include 'partials/toast.html' %}</div>{% endif %}
+
+  <div class="ledger-card spin-head">
+    <div class="ledger-id">
+      <a class="back" href="/spin" aria-label="Back to spinners">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <div class="spinner-emoji" aria-hidden="true">{{ spinner.emoji }}</div>
+      <div class="ledger-who">
+        <h1 class="ledger-name">{{ spinner.name }}</h1>
+        <div class="ledger-sub">
+          <strong>{{ picks|length }}</strong> of {{ members|length }} picks in
+          {% if spinner.kind == 'movie' %} · Movie night{% if jellyfin_enabled %} · Jellyfin connected{% endif %}{% endif %}
+        </div>
+      </div>
+      <div class="spin-head-actions">
+        {% if picks %}
+        <form method="post" action="/spin/{{ sid }}/reset" hx-post="/spin/{{ sid }}/reset" hx-confirm="Clear everyone's picks and start a new round?">
+          <button type="submit" class="btn btn-ghost">New round</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/spin/{{ sid }}/delete" onsubmit="return confirm('Delete this spinner and its history?');">
+          <button type="submit" class="btn-link danger" aria-label="Delete spinner">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="spin-layout">
+    <section class="card wheel-wrap" aria-label="Wheel">
+      <div class="wheel-stage">
+        <div class="wheel-pointer" aria-hidden="true"></div>
+        <div class="wheel {{ 'is-empty' if not segments }}" {% if gradient %}style="background: {{ gradient }};"{% endif %} aria-hidden="true">
+          {% for s in segments %}
+          <div class="wheel-label{{ ' flip' if s.mid > 180 }}" data-idx="{{ s.idx }}" style="transform: rotate({{ '%.3f'|format(s.mid - 90) }}deg);"><span>{{ s.label }}</span></div>
+          {% endfor %}
+        </div>
+        <button type="button" class="wheel-hub" hx-post="/spin/{{ sid }}/spin" hx-target="#spinOutcome" hx-swap="outerHTML"
+                hx-disabled-elt="this" {% if not can_spin %}disabled{% endif %}
+                aria-label="Spin the wheel">Spin</button>
+        <canvas class="confetti" aria-hidden="true"></canvas>
+      </div>
+      <p class="wheel-hint">
+        {% if not segments %}Add at least two picks to fill the wheel.
+        {% elif not can_spin %}One more pick and you can spin.
+        {% else %}Tap <strong>Spin</strong> — every pick has an equal shot.{% endif %}
+      </p>
+    </section>
+
+    <section class="card picks" aria-labelledby="picksHead">
+      <h2 id="picksHead" class="picks-head">Picks</h2>
+      {% for m in members %}
+      <div class="pick-row" style="--member-color: var(--member-{{ (m.idx % 6) + 1 }});">
+        <div class="avatar sm" aria-hidden="true">{{ m.name[:1]|upper }}</div>
+        <div class="pick-body">
+          <div class="pick-name">{{ m.name }}</div>
+          {% if m.pick %}
+          <div class="pick-label">
+            {% if m.pick.jellyfin_item_id %}<img class="pick-thumb" src="/jellyfin/image/{{ m.pick.jellyfin_item_id }}" alt="" loading="lazy" />{% endif %}
+            <span>{{ m.pick.label }}</span>
+            <form method="post" action="/spin/{{ sid }}/pick/clear" hx-post="/spin/{{ sid }}/pick/clear" class="pick-clear">
+              <input type="hidden" name="member_id" value="{{ m.id }}" />
+              <button type="submit" class="icon-btn" aria-label="Clear {{ m.name }}'s pick" title="Change pick">×</button>
+            </form>
+          </div>
+          {% else %}
+          <form method="post" action="/spin/{{ sid }}/pick" hx-post="/spin/{{ sid }}/pick" class="pick-form">
+            <input type="hidden" name="member_id" value="{{ m.id }}" />
+            <input type="text" name="label" maxlength="80" autocomplete="off" required
+                   placeholder="{{ 'Movie title…' if spinner.kind == 'movie' else 'What do you want?' }}" aria-label="{{ m.name }}'s pick" />
+            <button type="submit" class="btn btn-primary sm">Add</button>
+          </form>
+          {% if jellyfin_enabled %}
+          <div class="pick-actions">
+            <button type="button" class="preset" hx-get="/spin/{{ sid }}/movies?member_id={{ m.id }}&kids=1" hx-target="#moviePickerBody" hx-swap="innerHTML">Browse library</button>
+            <form method="post" action="/spin/{{ sid }}/pick/random" hx-post="/spin/{{ sid }}/pick/random">
+              <input type="hidden" name="member_id" value="{{ m.id }}" />
+              <input type="hidden" name="kids" value="1" />
+              <button type="submit" class="preset">Surprise me</button>
+            </form>
+          </div>
+          {% endif %}
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% if spinner.kind == 'movie' and not jellyfin_enabled %}
+      <p class="hint">Set <code>JELLYFIN_URL</code> and <code>JELLYFIN_API_KEY</code> to get unwatched-movie suggestions here.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  {% include 'partials/spin_outcome.html' %}
+</div>

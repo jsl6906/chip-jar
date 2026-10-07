@@ -1,0 +1,18 @@
+{# expects: quick_items (list of {activity_type, amount, uses, vals}), selected_cat #}
+{% if quick_items %}
+<span class="lbl">{{ 'Recent & frequent' if quick_items[0].uses else 'Quick log' }} · one tap</span>
+<div class="quick-list">
+  {% for it in quick_items %}
+  {% set a = it.amount %}
+  <button type="button" class="quick-item {{ 'pos' if a is not none and a > 0 else ('neg' if a is not none and a < 0 else '') }}"
+          hx-post="/activity" hx-vals='{{ it.vals|tojson }}' hx-swap="none"
+          hx-include="#quickAdd [name=household_member_id]:checked, #quickAdd [name=when]"
+          hx-params="household_member_id,category,activity_type,amount,when"
+          hx-disabled-elt="this"
+          title="{{ it.activity_type }}{% if it.uses %} · used {{ it.uses }}×{% endif %}">
+    {% if a is not none and selected_cat in ('incentive', 'allowance', 'other') %}<span class="qi-amt">{{ a|fmt_amount(selected_cat) }}</span>{% endif %}
+    <span class="qi-name">{{ it.activity_type }}</span>
+  </button>
+  {% endfor %}
+</div>
+{% endif %}
