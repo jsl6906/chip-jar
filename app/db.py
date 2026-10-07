@@ -69,9 +69,19 @@ def ping() -> int:
 
 # --- lookups -----------------------------------------------------------------
 
-def list_household_members() -> list[tuple[int, str]]:
+def list_household_members(tracked_only: bool = False) -> list[dict]:
+    """Members in display order: id, name, color, tracked."""
     with connection() as conn:
-        return conn.execute("SELECT id, name FROM household_member ORDER BY name").fetchall()
+        rows = conn.execute(
+            """--sql
+            SELECT id, name, color, tracked
+            FROM household_member
+            WHERE tracked OR NOT %s
+            ORDER BY sort_order, name
+            """,
+            [tracked_only],
+        ).fetchall()
+    return [{"id": r[0], "name": r[1], "color": r[2], "tracked": r[3]} for r in rows]
 
 
 def list_incentives() -> list[tuple[str, Optional[str], int]]:
@@ -291,7 +301,7 @@ def dashboard(days: int = 14) -> list[dict]:
     daily chips balance for the trailing `days` days, oldest first).
     """
     with connection() as conn:
-        members = conn.execute("SELECT id, name FROM household_member ORDER BY name").fetchall()
+        members = conn.execute("SELECT id, name, color FROM household_member WHERE tracked ORDER BY sort_order, name").fetchall()
         totals = conn.execute(
             """--sql
             SELECT household_member_id, category, COALESCE(SUM(amount), 0)
@@ -335,7 +345,7 @@ def dashboard(days: int = 14) -> list[dict]:
         net_by_member.setdefault(mid, {})[day] = net
 
     result = []
-    for mid, name in members:
+    for mid, name, color in members:
         total = chips.get(mid, Decimal(0))
         nets = net_by_member.get(mid, {})
         window_sum = sum(nets.values(), Decimal(0))
@@ -348,6 +358,7 @@ def dashboard(days: int = 14) -> list[dict]:
             {
                 "id": mid,
                 "name": name,
+                "color": color,
                 "chips": total,
                 "allowance": allowance.get(mid, Decimal(0)),
                 "last": last.get(mid),
@@ -483,7 +494,7 @@ def spinner_picks(spinner_id: int) -> list[dict]:
             FROM spinner_pick p
             JOIN household_member hm ON hm.id = p.household_member_id
             WHERE p.spinner_id = %s
-            ORDER BY hm.name
+            ORDER BY hm.sort_order, hm.name
             """,
             [spinner_id],
         ).fetchall()
@@ -639,3 +650,149 @@ def delete_abc_visit(visit_id: int) -> Optional[dict]:
             [visit_id],
         ).fetchone()
     return dict(zip(_ABC_COLS, row)) if row else None
+
+
+# --- manage (admin page) -----------------------------------------------------------
+
+MEMBER_COLORS = ("#d9643a", "#1b998b", "#6c5ce7", "#e4a010", "#e2559c", "#3b82c4")
+
+SETTING_DEFAULTS = {
+    "default_member_id": "",
+    "default_category": "incentive",
+    "allowance_presets": "5, 10, 20, -5, -10",
+}
+
+
+def manage_members() -> list[dict]:
+    """All members in display order with their activity count (members with history can't be deleted)."""
+    with connection() as conn:
+        rows = conn.execute(
+            """--sql
+            SELECT hm.id, hm.name, hm.color, hm.tracked,
+                   (SELECT COUNT(*) FROM activity a WHERE a.household_member_id = hm.id) AS activity_count
+            FROM household_member hm
+            ORDER BY hm.sort_order, hm.name
+            """
+        ).fetchall()
+    return [{"id": r[0], "name": r[1], "color": r[2], "tracked": r[3], "activity_count": r[4]} for r in rows]
+
+
+def add_member(name: str, color: str) -> Optional[int]:
+    """Append a member at the end of the order; None if the name is taken."""
+    try:
+        with connection() as conn:
+            row = conn.execute(
+                """--sql
+                INSERT INTO household_member (name, color, sort_order)
+                SELECT %s, %s, COALESCE(MAX(sort_order) + 1, 0) FROM household_member
+                RETURNING id
+                """,
+                [name, color],
+            ).fetchone()
+    except psycopg.errors.UniqueViolation:
+        return None
+    return int(row[0])
+
+
+def update_member(member_id: int, name: str, color: str, tracked: bool) -> Optional[bool]:
+    """True if updated, False if the id is gone, None if the name is taken."""
+    try:
+        with connection() as conn:
+            cur = conn.execute(
+                "UPDATE household_member SET name = %s, color = %s, tracked = %s WHERE id = %s",
+                [name, color, tracked, member_id],
+            )
+            return cur.rowcount == 1
+    except psycopg.errors.UniqueViolation:
+        return None
+
+
+def move_member(member_id: int, delta: int) -> None:
+    """Shift a member up (-1) or down (+1) and renumber everyone 0..n-1."""
+    with connection() as conn:
+        ids = [r[0] for r in conn.execute("SELECT id FROM household_member ORDER BY sort_order, name FOR UPDATE").fetchall()]
+        if member_id not in ids:
+            return
+        i = ids.index(member_id)
+        j = i + delta
+        if 0 <= j < len(ids):
+            ids[i], ids[j] = ids[j], ids[i]
+        conn.execute(
+            """--sql
+            UPDATE household_member hm
+            SET sort_order = u.pos - 1
+            FROM unnest(%s::int[]) WITH ORDINALITY AS u(id, pos)
+            WHERE hm.id = u.id
+            """,
+            [ids],
+        )
+
+
+def delete_member(member_id: int) -> Optional[bool]:
+    """Delete a member with no history (their open spinner picks go too); None if activity/spins reference them."""
+    try:
+        with connection() as conn:
+            conn.execute("DELETE FROM spinner_pick WHERE household_member_id = %s", [member_id])
+            cur = conn.execute("DELETE FROM household_member WHERE id = %s", [member_id])
+            return cur.rowcount == 1
+    except psycopg.errors.ForeignKeyViolation:
+        return None
+
+
+def get_settings() -> dict[str, str]:
+    with connection() as conn:
+        rows = conn.execute("SELECT key, value FROM app_setting").fetchall()
+    return SETTING_DEFAULTS | {k: v for k, v in rows if k in SETTING_DEFAULTS}
+
+
+def save_settings(values: dict[str, str]) -> None:
+    unknown = set(values) - set(SETTING_DEFAULTS)
+    if unknown:
+        raise ValueError(f"Unknown settings {sorted(unknown)}")
+    with connection() as conn:
+        conn.cursor().executemany(
+            """--sql
+            INSERT INTO app_setting (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+            """,
+            list(values.items()),
+        )
+
+
+# Lookup tables behind chip presets and the medication list: kind -> (table, value column).
+LOOKUPS = {"incentive": ("incentives", "points"), "medication": ("medications", "dose")}
+
+
+def lookup_rows(kind: str) -> list[dict]:
+    table, col = LOOKUPS[kind]
+    with connection() as conn:
+        rows = conn.execute(
+            sql.SQL("SELECT id, name, description, {col} FROM {table} ORDER BY ABS({col}), {col} DESC, name").format(
+                col=sql.Identifier(col), table=sql.Identifier(table)
+            )
+        ).fetchall()
+    return [{"id": r[0], "name": r[1], "description": r[2], "value": r[3]} for r in rows]
+
+
+def save_lookup(kind: str, item_id: Optional[int], name: str, description: Optional[str], value: int) -> Optional[bool]:
+    """Insert (item_id None) or update; None if the name is taken."""
+    table, col = LOOKUPS[kind]
+    ident = {"col": sql.Identifier(col), "table": sql.Identifier(table)}
+    if item_id is None:
+        query = sql.SQL("INSERT INTO {table} (name, description, {col}) VALUES (%s, %s, %s)").format(**ident)
+        params: list = [name, description, value]
+    else:
+        query = sql.SQL("UPDATE {table} SET name = %s, description = %s, {col} = %s WHERE id = %s").format(**ident)
+        params = [name, description, value, item_id]
+    try:
+        with connection() as conn:
+            return conn.execute(query, params).rowcount == 1
+    except psycopg.errors.UniqueViolation:
+        return None
+
+
+def delete_lookup(kind: str, item_id: int) -> bool:
+    table, _ = LOOKUPS[kind]
+    with connection() as conn:
+        cur = conn.execute(sql.SQL("DELETE FROM {} WHERE id = %s").format(sql.Identifier(table)), [item_id])
+        return cur.rowcount == 1

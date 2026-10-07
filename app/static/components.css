@@ -643,6 +643,39 @@ dialog.picker::backdrop { background: rgba(20, 16, 12, 0.55); backdrop-filter: b
 .abc-tile-meta { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .abc-tile.current .abc-tile-meta { color: var(--accent); font-weight: 800; }
 
+/* ---------- Manage ---------- */
+.manage { display: grid; gap: var(--sp-4); max-width: 900px; margin: 0 auto; }
+.manage-head { display: grid; gap: var(--sp-2); }
+.manage-head h1 { font-size: var(--fs-xl); font-weight: 900; }
+.manage-head .badge:hover { color: var(--text); text-decoration: none; }
+.manage .hint { font-size: var(--fs-sm); color: var(--text-muted); }
+.manage-section { display: grid; gap: var(--sp-3); scroll-margin-top: calc(var(--header-h) + var(--sp-3)); }
+.manage-section h2 { font-size: var(--fs-lg); font-weight: 800; }
+.manage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.manage-row {
+	display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0;
+	padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--surface-2);
+}
+.manage-row.member-row { border-left: 4px solid var(--member-color); }
+.manage-row.is-muted .avatar, .manage-row.is-muted input[type=text] { opacity: 0.6; }
+.manage-row.is-new { background: transparent; border: 1.5px dashed var(--border-strong); }
+.manage-row input[type=text], .manage-row input[type=number] {
+	min-height: 40px; padding: 0.4rem 0.7rem; border-radius: var(--radius-sm);
+	border: 1.5px solid var(--border); background: var(--surface); color: var(--text);
+}
+.manage-row input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); outline: none; }
+.manage-row .grow { flex: 1 1 160px; min-width: 0; }
+.manage-row .num { width: 5.5rem; font-weight: 800; }
+.manage-row input[type=color] { width: 40px; height: 40px; padding: 2px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.manage-row .check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 700; cursor: pointer; }
+.manage-row .check input { width: 18px; height: 18px; accent-color: var(--member-color, var(--accent)); }
+.row-meta { font-size: var(--fs-xs); color: var(--text-faint); white-space: nowrap; }
+.row-actions { display: flex; align-items: center; gap: var(--sp-1); margin-left: auto; }
+.row-actions .icon-btn:disabled, .row-actions .btn-link:disabled { opacity: 0.35; cursor: not-allowed; }
+.row-actions .btn-link.danger:disabled:hover { color: var(--text-faint); }
+.manage-defaults { display: grid; gap: var(--sp-3); }
+.manage-defaults .actions { display: flex; justify-content: flex-end; }
+
 @media (max-width: 520px) {
 	.card { padding: var(--sp-4); }
 }

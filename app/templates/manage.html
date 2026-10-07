@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block title %}Manage · ChipJar{% endblock %}
+{% block content %}
+<div class="manage">
+  <header class="manage-head">
+    <h1>Manage ChipJar</h1>
+    <p class="hint">Changes apply right away for everyone.</p>
+    <nav class="chip-row" aria-label="Sections">
+      <a class="badge" href="#members">Family</a>
+      <a class="badge" href="#defaults">Defaults</a>
+      <a class="badge" href="#chips">Chip presets</a>
+      <a class="badge" href="#meds">Medications</a>
+    </nav>
+  </header>
+
+  <section class="card manage-section" id="members" aria-labelledby="membersHead">
+    <h2 id="membersHead">Family</h2>
+    <p class="hint">This order is used on the home page and spinners. Untick <strong>Tracking</strong> to hide someone from chips, allowance and meds; they stay on the spinners. People with history can be hidden but not deleted.</p>
+    <ul class="manage-list">
+      {% for m in members %}
+      <li>
+        <form class="manage-row member-row{{ ' is-muted' if not m.tracked }}" method="post" action="/manage/members/{{ m.id }}" style="--member-color: {{ m.color }};">
+          <span class="avatar sm" aria-hidden="true">{{ m.name[:1]|upper }}</span>
+          <input type="color" name="color" value="{{ m.color }}" aria-label="Colour for {{ m.name }}" />
+          <input class="grow" type="text" name="name" value="{{ m.name }}" maxlength="40" required aria-label="Name" />
+          <label class="check"><input type="checkbox" name="tracked" value="1" {% if m.tracked %}checked{% endif %} /> Tracking</label>
+          <span class="row-meta">{{ m.activity_count }} entr{{ 'y' if m.activity_count == 1 else 'ies' }}</span>
+          <div class="row-actions">
+            {# Save comes first so Enter in the name field saves. #}
+            <button type="submit" class="btn btn-primary sm" name="action" value="save">Save</button>
+            <button type="submit" class="icon-btn" name="action" value="up" {% if loop.first %}disabled{% endif %} aria-label="Move {{ m.name }} up" title="Move up">↑</button>
+            <button type="submit" class="icon-btn" name="action" value="down" {% if loop.last %}disabled{% endif %} aria-label="Move {{ m.name }} down" title="Move down">↓</button>
+            <button type="submit" class="btn-link danger" name="action" value="delete"
+                    {% if m.activity_count %}disabled title="Has history — untick Tracking to hide instead"{% endif %}
+                    onclick="return confirm('Remove this person?');">Delete</button>
+          </div>
+        </form>
+      </li>
+      {% endfor %}
+      <li>
+        <form class="manage-row is-new" method="post" action="/manage/members">
+          <input type="color" name="color" value="{{ next_color }}" aria-label="Colour" />
+          <input class="grow" type="text" name="name" maxlength="40" required placeholder="New person's name" aria-label="New person's name" autocomplete="off" />
+          <div class="row-actions"><button type="submit" class="btn btn-primary sm">Add person</button></div>
+        </form>
+      </li>
+    </ul>
+  </section>
+
+  <section class="card manage-section" id="defaults" aria-labelledby="defaultsHead">
+    <h2 id="defaultsHead">Defaults</h2>
+    <p class="hint">What the Add activity form starts with on the home page.</p>
+    <form class="manage-defaults" method="post" action="/manage/defaults">
+      <div class="fields">
+        <label class="field"><span class="lbl">Person</span>
+          <select name="default_member_id">
+            <option value="">First on the list</option>
+            {% for m in members if m.tracked %}
+            <option value="{{ m.id }}" {% if prefs.default_member_id == m.id|string %}selected{% endif %}>{{ m.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field"><span class="lbl">Category</span>
+          <select name="default_category">
+            {% for key, label in categories.items() %}
+            <option value="{{ key }}" {% if prefs.default_category == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field span-2"><span class="lbl">Allowance quick amounts ($)</span>
+          <input type="text" name="allowance_presets" value="{{ prefs.allowance_presets }}" placeholder="5, 10, 20, -5, -10" autocomplete="off" />
+        </label>
+      </div>
+      <div class="actions"><button type="submit" class="btn btn-primary sm">Save defaults</button></div>
+    </form>
+  </section>
+
+  {% for section_id, kind, title, value_label, rows, hint in [
+       ('chips', 'incentive', 'Chip presets', 'Chips', incentives, 'Their amounts become the quick chip buttons; logging an item by name without an amount uses its chips.'),
+       ('meds', 'medication', 'Medications', 'Dose', medications, 'Shown in the Meds dropdown and on the weekly dose grid.'),
+     ] %}
+  <section class="card manage-section" id="{{ section_id }}" aria-labelledby="{{ section_id }}Head">
+    <h2 id="{{ section_id }}Head">{{ title }}</h2>
+    <p class="hint">{{ hint }}</p>
+    <ul class="manage-list">
+      {% for r in rows %}
+      <li>
+        <form class="manage-row" method="post" action="/manage/items/{{ kind }}/{{ r.id }}">
+          <input class="grow" type="text" name="name" value="{{ r.name }}" maxlength="60" required aria-label="Name" />
+          <input class="num" type="number" name="value" value="{{ r.value }}" step="1" required aria-label="{{ value_label }}" title="{{ value_label }}" />
+          <input class="grow" type="text" name="description" value="{{ r.description or '' }}" maxlength="120" placeholder="Description (optional)" aria-label="Description" />
+          <div class="row-actions">
+            <button type="submit" class="btn btn-primary sm" name="action" value="save">Save</button>
+            <button type="submit" class="btn-link danger" name="action" value="delete" onclick="return confirm('Remove this item?');">Delete</button>
+          </div>
+        </form>
+      </li>
+      {% endfor %}
+      <li>
+        <form class="manage-row is-new" method="post" action="/manage/items/{{ kind }}">
+          <input class="grow" type="text" name="name" maxlength="60" required placeholder="New {{ 'item' if kind == 'incentive' else 'medication' }}" aria-label="Name" autocomplete="off" />
+          <input class="num" type="number" name="value" step="1" required placeholder="{{ value_label }}" aria-label="{{ value_label }}" />
+          <input class="grow" type="text" name="description" maxlength="120" placeholder="Description (optional)" aria-label="Description" autocomplete="off" />
+          <div class="row-actions"><button type="submit" class="btn btn-primary sm">Add</button></div>
+        </form>
+      </li>
+    </ul>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

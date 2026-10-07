@@ -1,5 +1,5 @@
-{# expects: m (dashboard entry), idx (0-based member index for colour) #}
-<article class="member-card" id="member-{{ m.id }}" style="--member-color: var(--member-{{ (idx % 6) + 1 }});"{% if oob %} hx-swap-oob="true"{% endif %}>
+{# expects: m (dashboard entry) #}
+<article class="member-card" id="member-{{ m.id }}" style="--member-color: {{ m.color }};"{% if oob %} hx-swap-oob="true"{% endif %}>
   <div class="member-head">
     <div class="avatar" aria-hidden="true">{{ m.name[:1]|upper }}</div>
     <div>

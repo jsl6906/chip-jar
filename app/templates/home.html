@@ -32,7 +32,7 @@
       <legend>Who</legend>
       <div class="member-picker">
         {% for m in dashboard %}
-        <label style="--member-color: var(--member-{{ (loop.index0 % 6) + 1 }});">
+        <label style="--member-color: {{ m.color }};">
           <input type="radio" name="household_member_id" value="{{ m.id }}"
                  {% if selected_member == m.id %}checked{% endif %} required />
           <span><span class="avatar sm" aria-hidden="true">{{ m.name[:1]|upper }}</span>{{ m.name }}</span>
@@ -80,8 +80,8 @@
         </label>
       </div>
       <div class="presets" aria-label="Quick amounts">
-        {% for v in ['5', '10', '20', '-5', '-10'] %}
-        <button type="button" class="preset {{ 'neg' if v.startswith('-') else 'pos' }}" data-amount="{{ v }}">{{ '+' if not v.startswith('-') else '-' }}${{ v|replace('-', '') }}</button>
+        {% for v in allowance_presets %}
+        <button type="button" class="preset {{ 'neg' if v < 0 else 'pos' }}" data-amount="{{ v }}">{{ '-' if v < 0 else '+' }}${{ v|abs|fmt_num }}</button>
         {% endfor %}
       </div>
     </div>

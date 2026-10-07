@@ -20,6 +20,9 @@ UTC = ZoneInfo("UTC")
 # Optional file log path; stdout logging is always on.
 LOG_FILE: str = os.environ.get("LOG_FILE", "")
 
+# HTTP Basic password for the /manage admin page; the page returns 404 while unset.
+MANAGE_PASSWORD: str = os.environ.get("MANAGE_PASSWORD", "")
+
 # Optional Jellyfin integration for movie-night suggestions (enabled when the API key is set).
 # Default URL is the compose service name on MediaServer; override when running elsewhere.
 JELLYFIN_URL: str = os.environ.get("JELLYFIN_URL", "http://jellyfin:8096").rstrip("/")

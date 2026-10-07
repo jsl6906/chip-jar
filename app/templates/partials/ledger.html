@@ -1,6 +1,6 @@
 {% set money = tab in ('incentive', 'allowance') %}
 {% set base_url = '/report/' ~ tab_path ~ '/' ~ member.id %}
-<div id="ledger" class="ledger{{ ' money' if money else '' }}" style="--member-color: var(--member-{{ (member.idx % 6) + 1 }});">
+<div id="ledger" class="ledger{{ ' money' if money else '' }}" style="--member-color: {{ member.color }};">
 
   <div class="ledger-head">
     <div class="ledger-card">
@@ -23,7 +23,7 @@
         <nav class="member-switch" aria-label="Switch member">
           {% for o in members if o.id != member.id %}
           <a class="avatar sm" href="/report/{{ tab_path }}/{{ o.id }}" hx-get="/report/{{ tab_path }}/{{ o.id }}" hx-push-url="true"
-             style="--member-color: var(--member-{{ (o.idx % 6) + 1 }});" title="{{ o.name }}" aria-label="{{ o.name }}">{{ o.name[:1]|upper }}</a>
+             style="--member-color: {{ o.color }};" title="{{ o.name }}" aria-label="{{ o.name }}">{{ o.name[:1]|upper }}</a>
           {% endfor %}
         </nav>
         {% endif %}

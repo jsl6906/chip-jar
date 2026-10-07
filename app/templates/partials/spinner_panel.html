@@ -54,7 +54,7 @@
     <section class="card picks" aria-labelledby="picksHead">
       <h2 id="picksHead" class="picks-head">Picks</h2>
       {% for m in members %}
-      <div class="pick-row" data-pick-id="pick-{{ m.id }}" style="--member-color: var(--member-{{ (m.idx % 6) + 1 }});">
+      <div class="pick-row" data-pick-id="pick-{{ m.id }}" style="--member-color: {{ m.color }};">
         <div class="avatar sm" aria-hidden="true">{{ m.name[:1]|upper }}</div>
         <div class="pick-body">
           <div class="pick-name">{{ m.name }}</div>

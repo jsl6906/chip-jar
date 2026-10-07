@@ -1,4 +1,5 @@
 import logging
+import re
 import secrets
 import sys
 import threading
@@ -8,10 +9,11 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -197,6 +199,16 @@ def _parse_amount(raw: Optional[str], category: str) -> Optional[Decimal]:
     return dec.to_integral_value(rounding=ROUND_HALF_UP)
 
 
+def _parse_presets(raw: str) -> list[Decimal]:
+    """Comma/space separated non-zero dollar amounts, max 10 (allowance quick buttons)."""
+    out: list[Decimal] = []
+    for part in re.split(r"[,\s]+", raw or ""):
+        dec = _to_plain(part.replace("$", "")) if part else None
+        if dec and dec.is_finite() and abs(dec) < 10000:
+            out.append(dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP).normalize())
+    return out[:10]
+
+
 def _parse_when(raw: Optional[str]) -> Optional[datetime]:
     """Interpret an HTML datetime-local value as local time; return aware UTC."""
     if not raw:
@@ -275,7 +287,7 @@ def health_check():
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "database": "connected",
             "members_count": member_count,
-            "version": "0.5.0",
+            "version": "0.6.0",
         }
     )
 
@@ -333,8 +345,14 @@ def home(request: Request):
 
     dashboard = db.dashboard()
     ids = [m["id"] for m in dashboard]
-    selected_member = int(q["member_id"]) if q.get("member_id", "").isdigit() and int(q["member_id"]) in ids else (ids[0] if ids else None)
-    selected_cat = q.get("cat") if q.get("cat") in CATEGORY_LABELS else "incentive"
+    prefs = db.get_settings()
+    default_member = int(prefs["default_member_id"]) if prefs["default_member_id"].isdigit() else None
+    if q.get("member_id", "").isdigit() and int(q["member_id"]) in ids:
+        selected_member = int(q["member_id"])
+    else:
+        selected_member = default_member if default_member in ids else (ids[0] if ids else None)
+    default_cat = prefs["default_category"] if prefs["default_category"] in CATEGORY_LABELS else "incentive"
+    selected_cat = q.get("cat") if q.get("cat") in CATEGORY_LABELS else default_cat
     incentives = db.list_incentives()
     return templates.TemplateResponse(
         request=request,
@@ -342,6 +360,7 @@ def home(request: Request):
         context={
             "dashboard": dashboard,
             "chip_presets": sorted({pts for _, _, pts in incentives}, key=lambda p: (p < 0, abs(p))),
+            "allowance_presets": _parse_presets(prefs["allowance_presets"]) or _parse_presets(db.SETTING_DEFAULTS["allowance_presets"]),
             "medications": db.list_medications(),
             "selected_member": selected_member,
             "selected_cat": selected_cat,
@@ -453,10 +472,10 @@ def _render_ledger(
 ):
     limit = max(10, min(limit, 1000))
     roster = db.list_household_members()
-    members = [{"id": mid, "name": name, "idx": i} for i, (mid, name) in enumerate(roster)]
-    member = next((m for m in members if m["id"] == member_id), None)
+    member = next((m for m in roster if m["id"] == member_id), None)
     if member is None:
         raise HTTPException(status_code=404, detail="Unknown household member")
+    members = [m for m in roster if m["tracked"] or m["id"] == member_id]
 
     ctx: dict = {"prior_balance": None, "prior_count": 0, "med_summary": None, "med_grid": None}
     if tab in ("incentive", "allowance"):
@@ -629,7 +648,7 @@ def _movie_label(m: jellyfin.Movie) -> str:
     return f"{m.name} ({m.year})" if m.year else m.name
 
 
-def _wheel_segments(picks: list[dict], idx_by_member: dict[int, int]) -> list[dict]:
+def _wheel_segments(picks: list[dict]) -> list[dict]:
     """Equal slices clockwise from 12 o'clock, coloured by the pick's owner."""
     n = len(picks)
     if n == 0:
@@ -645,7 +664,6 @@ def _wheel_segments(picks: list[dict], idx_by_member: dict[int, int]) -> list[di
                 "start": start,
                 "end": start + size,
                 "mid": start + size / 2,
-                "color": f"var(--member-{(idx_by_member.get(p['member_id'], 0) % 6) + 1})",
             }
         )
     return segs
@@ -653,19 +671,19 @@ def _wheel_segments(picks: list[dict], idx_by_member: dict[int, int]) -> list[di
 
 def _spinner_ctx(spinner: dict, winner_idx: Optional[int] = None, result_id: Optional[int] = None) -> dict:
     roster = db.list_household_members()
-    idx_by_member = {mid: i for i, (mid, _) in enumerate(roster)}
+    color_by_member = {m["id"]: m["color"] for m in roster}
     picks = db.spinner_picks(spinner["id"])
     pick_by_member = {p["member_id"]: p for p in picks}
     for p in picks:
-        p["idx"] = idx_by_member.get(p["member_id"], 0)
-    members = [{"id": mid, "name": name, "idx": i, "pick": pick_by_member.get(mid)} for i, (mid, name) in enumerate(roster)]
-    segments = _wheel_segments(picks, idx_by_member)
+        p["color"] = color_by_member.get(p["member_id"], db.MEMBER_COLORS[0])
+    members = [{**m, "pick": pick_by_member.get(m["id"])} for m in roster]
+    segments = _wheel_segments(picks)
     gradient = ", ".join(f"{s['color']} {s['start']:.3f}deg {s['end']:.3f}deg" for s in segments)
     history = db.spin_history(spinner["id"])
     return {
         "spinner": spinner,
         "members": members,
-        "member_idx": idx_by_member,
+        "member_colors": color_by_member,
         "picks": picks,
         "segments": segments,
         "gradient": f"conic-gradient(from 0deg, {gradient})" if gradient else "",
@@ -821,7 +839,7 @@ def spin_movies(
     grid: str = "",
 ):
     spinner = _get_spinner_or_404(spinner_id)
-    member = next(({"id": mid, "name": name} for mid, name in db.list_household_members() if mid == member_id), None)
+    member = next((m for m in db.list_household_members() if m["id"] == member_id), None)
     if member is None:
         raise HTTPException(status_code=404, detail="Unknown household member")
     movies = jellyfin.search(q=q, genre=genre, kids=kids == "1", exclude=db.recent_movie_ids()) if jellyfin.enabled() else []
@@ -852,7 +870,7 @@ def spin_places(
     grid: str = "",
 ):
     spinner = _get_spinner_or_404(spinner_id)
-    member = next(({"id": mid, "name": name} for mid, name in db.list_household_members() if mid == member_id), None)
+    member = next((m for m in db.list_household_members() if m["id"] == member_id), None)
     if member is None:
         raise HTTPException(status_code=404, detail="Unknown household member")
     category = category if category in places.CATEGORIES else "casual"
@@ -1045,6 +1063,158 @@ def abc_delete(request: Request, visit_id: int):
         return _render_abc(request, toast={"kind": "error", "title": "Couldn't remove that visit", "detail": "", "sub": ""})
     toast = {"kind": "success", "title": f"Removed {row['name']}", "detail": "", "sub": ""}
     return _render_abc(request, row["round_no"], row["letter"], toast)
+
+
+# --- manage (admin) ------------------------------------------------------------
+
+_basic = HTTPBasic(realm="ChipJar manage", auto_error=False)
+
+
+def _require_manager(request: Request, creds: Optional[HTTPBasicCredentials] = Depends(_basic)) -> None:
+    if not settings.MANAGE_PASSWORD:
+        raise HTTPException(status_code=404)
+    if creds is None or not secrets.compare_digest(creds.password.encode(), settings.MANAGE_PASSWORD.encode()):
+        if creds is not None:
+            logger.warning("Manage login failed from %s", request.client.host if request.client else "unknown")
+        raise HTTPException(status_code=401, headers={"WWW-Authenticate": 'Basic realm="ChipJar manage", charset="UTF-8"'})
+    # Browsers resend Basic credentials automatically, so refuse cross-site form posts (CSRF).
+    if request.method == "POST":
+        origin = request.headers.get("Origin")
+        fetch_site = request.headers.get("Sec-Fetch-Site", "same-origin")
+        if fetch_site not in ("same-origin", "none") or (origin and urlsplit(origin).netloc != request.headers.get("Host")):
+            raise HTTPException(status_code=403)
+
+
+manage = APIRouter(prefix="/manage", dependencies=[Depends(_require_manager)])
+
+_MANAGE_MSGS = {
+    "member-added": ("success", "Member added", ""),
+    "member-saved": ("success", "Member saved", ""),
+    "member-moved": ("success", "Order updated", ""),
+    "member-deleted": ("success", "Member removed", ""),
+    "member-dup": ("error", "That name is already taken", ""),
+    "member-history": ("error", "Can't delete someone with history", "Untick “Tracking” to hide them from the tracking pages instead."),
+    "defaults-saved": ("success", "Defaults saved", ""),
+    "item-saved": ("success", "Saved", ""),
+    "item-deleted": ("success", "Removed", ""),
+    "item-dup": ("error", "That name is already in the list", ""),
+    "invalid": ("error", "Please check that entry", ""),
+}
+_HEX_COLOR = re.compile(r"^#[0-9a-f]{6}$")
+
+
+def _manage_redirect(msg: str, anchor: str) -> RedirectResponse:
+    return RedirectResponse(f"/manage?msg={msg}#{anchor}", status_code=303)
+
+
+def _clean_color(raw: str) -> Optional[str]:
+    color = (raw or "").strip().lower()
+    return color if _HEX_COLOR.match(color) else None
+
+
+@manage.get("", response_class=HTMLResponse)
+def manage_show(request: Request, msg: str = ""):
+    members = db.manage_members()
+    used = {m["color"] for m in members}
+    kind, title, sub = _MANAGE_MSGS.get(msg, (None, "", ""))
+    return templates.TemplateResponse(
+        request=request,
+        name="manage.html",
+        context={
+            "members": members,
+            "next_color": next((c for c in db.MEMBER_COLORS if c not in used), db.MEMBER_COLORS[len(members) % 6]),
+            "prefs": db.get_settings(),
+            "categories": CATEGORY_LABELS,
+            "incentives": db.lookup_rows("incentive"),
+            "medications": db.lookup_rows("medication"),
+            "toast": {"kind": kind, "title": title, "detail": "", "sub": sub} if kind else None,
+        },
+    )
+
+
+@manage.post("/members")
+def manage_member_add(name: str = Form(...), color: str = Form("")):
+    name = name.strip()[:40]
+    color = _clean_color(color)
+    if not name or color is None:
+        return _manage_redirect("invalid", "members")
+    new_id = db.add_member(name, color)
+    logger.info("Manage: added member %r -> %s", name, new_id)
+    return _manage_redirect("member-added" if new_id else "member-dup", "members")
+
+
+@manage.post("/members/{member_id}")
+def manage_member_update(
+    member_id: int,
+    action: str = Form("save"),
+    name: str = Form(""),
+    color: str = Form(""),
+    tracked: Optional[str] = Form(None),
+):
+    if action in ("up", "down"):
+        db.move_member(member_id, -1 if action == "up" else 1)
+        return _manage_redirect("member-moved", "members")
+    if action == "delete":
+        ok = db.delete_member(member_id)
+        logger.info("Manage: delete member %s -> %s", member_id, ok)
+        return _manage_redirect("member-deleted" if ok else "member-history", "members")
+    name = name.strip()[:40]
+    color = _clean_color(color)
+    if not name or color is None:
+        return _manage_redirect("invalid", "members")
+    ok = db.update_member(member_id, name, color, tracked == "1")
+    logger.info("Manage: update member %s (%r, %s, tracked=%s) -> %s", member_id, name, color, tracked == "1", ok)
+    return _manage_redirect("member-dup" if ok is None else "member-saved", "members")
+
+
+@manage.post("/defaults")
+def manage_defaults(
+    default_member_id: str = Form(""),
+    default_category: str = Form("incentive"),
+    allowance_presets: str = Form(""),
+):
+    member_ids = {m["id"] for m in db.list_household_members()}
+    presets = _parse_presets(allowance_presets)
+    db.save_settings(
+        {
+            "default_member_id": default_member_id if default_member_id.isdigit() and int(default_member_id) in member_ids else "",
+            "default_category": default_category if default_category in CATEGORY_LABELS else "incentive",
+            "allowance_presets": ", ".join(str(p) for p in presets) or db.SETTING_DEFAULTS["allowance_presets"],
+        }
+    )
+    return _manage_redirect("defaults-saved", "defaults")
+
+
+@manage.post("/items/{kind}")
+@manage.post("/items/{kind}/{item_id}")
+def manage_item_save(
+    kind: str,
+    item_id: Optional[int] = None,
+    action: str = Form("save"),
+    name: str = Form(""),
+    value: str = Form(""),
+    description: str = Form(""),
+):
+    if kind not in db.LOOKUPS:
+        raise HTTPException(status_code=404)
+    anchor = "chips" if kind == "incentive" else "meds"
+    if action == "delete" and item_id is not None:
+        ok = db.delete_lookup(kind, item_id)
+        logger.info("Manage: delete %s %s -> %s", kind, item_id, ok)
+        return _manage_redirect("item-deleted", anchor)
+    name = name.strip()[:60]
+    try:
+        amount = int(value.strip())
+    except ValueError:
+        amount = None
+    if not name or amount is None or abs(amount) > 10000 or (kind == "medication" and amount < 1):
+        return _manage_redirect("invalid", anchor)
+    ok = db.save_lookup(kind, item_id, name, description.strip()[:120] or None, amount)
+    logger.info("Manage: save %s %s (%r, %s) -> %s", kind, item_id or "new", name, amount, ok)
+    return _manage_redirect("item-dup" if ok is None else "item-saved", anchor)
+
+
+app.include_router(manage)
 
 
 def run(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):

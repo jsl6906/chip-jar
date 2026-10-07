@@ -120,6 +120,7 @@ Notes:
 | APP_TZ | Display / input timezone | America/New_York |
 | LOG_FILE | Optional file to append logs to (stdout always on) | unset |
 | RELOAD | Enable auto-reload in development | 0 (disabled) |
+| MANAGE_PASSWORD | HTTP Basic password (any username) for the `/manage` admin page: family members (add, colour, order, hide from tracking), home-page defaults, chip presets, medications. `/manage` is not linked anywhere and returns 404 while unset. | unset |
 
 ## Project Structure
 

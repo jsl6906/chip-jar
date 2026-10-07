@@ -1,4 +1,4 @@
-{# expects: spinner, last, history, member_idx, winner_idx?, result_id?, labels, partial, toast? #}
+{# expects: spinner, last, history, member_colors, winner_idx?, result_id?, labels, partial, toast? #}
 <div id="spinOutcome" class="spin-outcome"
      {% if winner_idx is not none %}data-winner-idx="{{ winner_idx }}" data-result-id="{{ result_id }}" data-labels='{{ labels|tojson }}'{% endif %}>
   {% if toast and partial %}<div hx-swap-oob="beforeend:#toasts">{% include 'partials/toast.html' %}</div>{% endif %}
@@ -8,7 +8,7 @@
   </div>
 
   {% if last %}
-  <section class="card winner" style="--member-color: var(--member-{{ ((member_idx.get(last.member_id, 0)) % 6) + 1 }});" aria-live="polite">
+  <section class="card winner" style="--member-color: {{ member_colors.get(last.member_id) or 'var(--accent)' }};" aria-live="polite">
     <div class="winner-kicker">{{ 'And the winner is' if winner_idx is not none else 'Last spin' }} · {{ last.ts|fmt_rel }}</div>
     <div class="winner-main">
       {% if last.jellyfin_item_id %}<img class="winner-poster" src="/jellyfin/image/{{ last.jellyfin_item_id }}" alt="" />{% endif %}
@@ -32,7 +32,7 @@
     <h2 id="histHead" class="picks-head">Recent spins</h2>
     <ol>
       {% for h in history[1:] %}
-      <li style="--member-color: var(--member-{{ ((member_idx.get(h.member_id, 0)) % 6) + 1 }});">
+      <li style="--member-color: {{ member_colors.get(h.member_id) or 'var(--accent)' }};">
         {% if h.jellyfin_item_id %}<img class="hist-thumb" src="/jellyfin/image/{{ h.jellyfin_item_id }}" alt="" loading="lazy" />{% elif h.place_id %}<img class="hist-thumb square" src="/places/photo/{{ h.place_id }}" alt="" loading="lazy" />{% else %}<span class="hist-dot" aria-hidden="true"></span>{% endif %}
         <div class="hist-body">
           <div class="hist-label">{{ h.label }}</div>
