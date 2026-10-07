@@ -583,3 +583,59 @@ def recent_place_ids(days: int = 21) -> set[str]:
             [days],
         ).fetchall()
     return {r[0] for r in rows}
+
+
+# --- restaurant ABC ------------------------------------------------------------
+
+_ABC_COLS = ("id", "round_no", "letter", "name", "location", "rating", "visited_on", "notes", "place_id")
+
+
+def abc_visits() -> list[dict]:
+    with connection() as conn:
+        rows = conn.execute(
+            """--sql
+            SELECT id, round_no, letter, name, location, rating, visited_on, notes, place_id
+            FROM abc_visit
+            ORDER BY round_no, letter
+            """
+        ).fetchall()
+    return [dict(zip(_ABC_COLS, r)) for r in rows]
+
+
+def save_abc_visit(visit_id: Optional[int], v: dict) -> Optional[int]:
+    """Insert (visit_id None) or update a visit; None if that round already has the letter (or the id is gone)."""
+    params = {k: v.get(k) for k in _ABC_COLS[1:]} | {"id": visit_id}
+    query = (
+        """--sql
+        UPDATE abc_visit
+        SET round_no = %(round_no)s, letter = %(letter)s, name = %(name)s, location = %(location)s,
+            rating = %(rating)s, visited_on = %(visited_on)s, notes = %(notes)s, place_id = %(place_id)s,
+            updated_at = now()
+        WHERE id = %(id)s
+        RETURNING id
+        """
+        if visit_id
+        else """--sql
+        INSERT INTO abc_visit (round_no, letter, name, location, rating, visited_on, notes, place_id)
+        VALUES (%(round_no)s, %(letter)s, %(name)s, %(location)s, %(rating)s, %(visited_on)s, %(notes)s, %(place_id)s)
+        RETURNING id
+        """
+    )
+    try:
+        with connection() as conn:
+            row = conn.execute(query, params).fetchone()
+    except psycopg.errors.UniqueViolation:
+        return None
+    return int(row[0]) if row else None
+
+
+def delete_abc_visit(visit_id: int) -> Optional[dict]:
+    with connection() as conn:
+        row = conn.execute(
+            """--sql
+            DELETE FROM abc_visit WHERE id = %s
+            RETURNING id, round_no, letter, name, location, rating, visited_on, notes, place_id
+            """,
+            [visit_id],
+        ).fetchone()
+    return dict(zip(_ABC_COLS, row)) if row else None

@@ -1,0 +1,31 @@
+{# expects: letter, places, loose, q, max_drive #}
+<div id="abcIdeaGrid" class="place-grid abc-idea-grid">
+  {% if loose %}<p class="hint abc-loose">Nothing nearby starts with {{ letter }}, so here are places with a {{ letter }} in the name.</p>{% endif %}
+  {% for p in places %}
+  <div class="place idea">
+    <span class="place-photo">{% if p.photo_name %}<img src="/places/photo/{{ p.id }}" alt="" loading="lazy" />{% else %}{{ p.emoji }}{% endif %}</span>
+    <span class="place-body">
+      <span class="place-name">{{ p.name }}</span>
+      <span class="place-meta">
+        {% if p.rating %}<span class="stars">★ {{ '%.1f'|format(p.rating) }}</span> <span class="muted">({{ p.rating_count }})</span> · {% endif %}{{ p.type_label or 'Restaurant' }}{% if p.price_label %} · {{ p.price_label }}{% endif %}
+      </span>
+      <span class="place-meta">🚗 {{ p.drive_min }} min{% if p.address %} · {{ p.address }}{% endif %}</span>
+      <span class="place-tags">
+        {% if p.open_now is true %}<span class="tag good">Open now</span>{% elif p.open_now is false %}<span class="tag">Closed now</span>{% endif %}
+        {% if p.good_for_children %}<span class="tag good">Good for kids</span>{% endif %}
+        {% if p.menu_for_children %}<span class="tag good">Kids menu</span>{% endif %}
+        {% if p.casual %}<span class="tag">Casual</span>{% endif %}
+      </span>
+      <span class="idea-actions">
+        <button type="button" class="preset" data-abc-fill='{{ {"name": p.name[:80], "location": p.city[:60], "place_id": p.id}|tojson }}'>Choose</button>
+        <a href="{{ p.maps_url }}" target="_blank" rel="noopener">Map ↗</a>
+      </span>
+    </span>
+  </div>
+  {% else %}
+  <p class="empty">
+    {% if q %}No new {{ letter }} places for “{{ q }}” within {{ max_drive }} min.
+    {% else %}No new {{ letter }} restaurants turned up within {{ max_drive }} min. Try searching a cuisine or a name.{% endif %}
+  </p>
+  {% endfor %}
+</div>

@@ -9,10 +9,12 @@ import random
 import re
 import threading
 import time
+import unicodedata
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Iterable, Optional
 from urllib.parse import quote
 
 import httpx
@@ -102,6 +104,10 @@ class Place:
     @property
     def price_label(self) -> str:
         return "$" * self.price if self.price else ""
+
+    @property
+    def city(self) -> str:
+        return self.address.rsplit(",", 1)[-1].strip() if "," in self.address else ""
 
     @property
     def maps_url(self) -> str:
@@ -194,16 +200,23 @@ def _nearby(client: httpx.Client, types: list[str]) -> list[dict]:
     return resp.json().get("places", [])
 
 
-def _text(client: httpx.Client, query: str) -> list[dict]:
+def _text(client: httpx.Client, query: str, radius_m: Optional[int] = None, pages: int = 1) -> list[dict]:
     body = {
         "textQuery": query,
         "pageSize": 20,
-        "locationBias": {"circle": {"center": _home(), "radius": float(settings.PLACES_SEARCH_RADIUS_M)}},
+        "locationBias": {"circle": {"center": _home(), "radius": float(radius_m or settings.PLACES_SEARCH_RADIUS_M)}},
     }
-    resp = client.post(f"{PLACES_URL}/places:searchText", json=body,
-                       headers=_headers(",".join(f"places.{f}" for f in FIELDS)))
-    resp.raise_for_status()
-    return resp.json().get("places", [])
+    mask = ",".join(f"places.{f}" for f in FIELDS) + (",nextPageToken" if pages > 1 else "")
+    out: list[dict] = []
+    for _ in range(pages):
+        resp = client.post(f"{PLACES_URL}/places:searchText", json=body, headers=_headers(mask))
+        resp.raise_for_status()
+        data = resp.json()
+        out += data.get("places", [])
+        if not data.get("nextPageToken"):
+            break
+        body = {**body, "pageToken": data["nextPageToken"]}
+    return out
 
 
 def _drive_minutes(client: httpx.Client, places: list[Place]) -> dict[str, int]:
@@ -342,3 +355,147 @@ def photo(place_id: str) -> Optional[tuple[bytes, str]]:
         while len(_photos) > _PHOTO_CACHE:
             _photos.popitem(last=False)
     return data
+
+
+# --- Restaurant ABC ------------------------------------------------------------
+
+# Google can't search by first letter, so a broad pool of cuisine searches (cached ABC_POOL_TTL) is filtered instead.
+ABC_QUERIES: tuple[tuple[str, int], ...] = (
+    ("restaurants", 3), ("family restaurant", 2), ("pizza", 1), ("burgers", 1), ("mexican restaurant", 1),
+    ("tacos", 1), ("chinese restaurant", 1), ("japanese restaurant", 1), ("sushi", 1), ("ramen", 1),
+    ("thai restaurant", 1), ("vietnamese pho", 1), ("korean restaurant", 1), ("indian restaurant", 1),
+    ("italian restaurant", 1), ("greek restaurant", 1), ("mediterranean restaurant", 1), ("middle eastern restaurant", 1),
+    ("ethiopian restaurant", 1), ("peruvian chicken", 1), ("salvadoran pupusas", 1), ("bbq", 1),
+    ("seafood restaurant", 1), ("breakfast diner", 1), ("cafe", 1), ("bakery", 1), ("deli sandwiches", 1),
+    ("ice cream", 1), ("steakhouse", 1), ("french bistro", 1), ("afghan restaurant", 1), ("vegetarian restaurant", 1),
+)
+
+_abc_lock = threading.Lock()
+
+# Text search returns any business type; ABC ideas keep *_restaurant plus these.
+FOOD_TYPES = {
+    "restaurant", "cafe", "bakery", "deli", "diner", "food_court", "meal_takeaway", "meal_delivery", "bar_and_grill",
+    "cafeteria", "snack_bar", "hot_dog_stand", "coffee_shop", "sandwich_shop", "ice_cream_shop", "dessert_shop",
+    "donut_shop", "bagel_shop", "juice_shop", "tea_house", "acai_shop", "chocolate_shop", "confectionery", "steak_house",
+}
+
+
+def first_letter(name: str) -> str:
+    """Alphabet slot for a name: first letter/digit, ignoring accents and a leading "The"."""
+    plain = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode()
+    plain = re.sub(r"^\s*the\s+", "", plain, flags=re.I)
+    m = re.search(r"[A-Za-z0-9]", plain)
+    return m.group(0).upper() if m else ""
+
+
+def _norm_name(name: str) -> str:
+    plain = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"^\s*the\s+", "", plain))
+
+
+def same_name(a: str, b: str) -> bool:
+    """Loose match so "Jinya Ramen Bar" == "JINYA Ramen Bar - Fairfax" and "Majestic" == "The Majestic"."""
+    na, nb = _norm_name(a), _norm_name(b)
+    return bool(na and nb) and (na.startswith(nb) or nb.startswith(na))
+
+
+def _fetch_text(query: str, pages: int) -> list[Place]:
+    try:
+        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
+            return [_parse(r) for r in _text(client, query, settings.ABC_SEARCH_RADIUS_M, pages)]
+    except (httpx.HTTPError, KeyError, ValueError) as e:
+        logger.warning("ABC search %r failed: %s", query, e)
+        return []
+
+
+def _abc_ids(queries: list[tuple[str, int]]) -> list[str]:
+    """Unique place ids across text searches; misses run in parallel and are cached per query."""
+    with _abc_lock:
+        now = time.monotonic()
+        with _lock:
+            todo = [(q, n) for q, n in queries if not ((hit := _searches.get(f"abc:{q.lower()}")) and hit[0] > now)]
+        if todo:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                fetched = list(pool.map(lambda qn: _fetch_text(*qn), todo))
+            with _lock:
+                for (q, _), found in zip(todo, fetched):
+                    ttl = settings.ABC_POOL_TTL if found else 60
+                    for p in found:
+                        _places[p.id] = (now + ttl, p)
+                    _searches[f"abc:{q.lower()}"] = (now + ttl, [p.id for p in found])
+            logger.info("ABC searches: %d fetched, %d cached", len(todo), len(queries) - len(todo))
+        with _lock:
+            ids = (pid for q, _ in queries for pid in _searches.get(f"abc:{q.lower()}", (0, []))[1])
+            return list(dict.fromkeys(pid for pid in ids if pid in _places))
+
+
+def _fill_drive(found: list[Place]) -> None:
+    now = time.monotonic()
+    with _lock:
+        need = [p for p in found if not (p.id in _drive and _drive[p.id][0] > now)]
+    try:
+        with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
+            for i in range(0, len(need), 25):
+                got = _drive_minutes(client, need[i:i + 25])
+                with _lock:
+                    for pid, mins in got.items():
+                        _drive[pid] = (now + _DRIVE_TTL, mins)
+    except (httpx.HTTPError, KeyError, ValueError) as e:
+        logger.warning("ABC drive times failed: %s", e)
+    with _lock:
+        for p in found:
+            d = _drive.get(p.id)
+            p.drive_min = d[1] if d else None
+
+
+def abc_suggestions(
+    letter: str,
+    q: str = "",
+    visited: Iterable[tuple[Optional[str], str]] = (),
+    limit: int = 12,
+) -> list[Place]:
+    """Family-friendly places whose name starts with `letter`, within ABC_MAX_DRIVE_MIN, best first.
+
+    visited: (place_id, name) pairs already logged; those are skipped.
+    """
+    letter = (letter or "").upper()
+    if not enabled() or len(letter) != 1 or not "A" <= letter <= "Z":
+        return []
+    q = q.strip()[:80]
+    queries = [(q, 1)] if q else [*ABC_QUERIES, (f"{letter} restaurant", 1)]
+    ids = _abc_ids(queries)
+    visited = list(visited)
+    seen_ids = {pid for pid, _ in visited if pid}
+    with _lock:
+        cands = [_places[pid][1] for pid in ids]
+    cands = [
+        p for p in cands
+        if p.operational
+        and p.good_for_children is not False
+        and (not p.primary_type or p.primary_type.endswith("_restaurant") or p.primary_type in FOOD_TYPES)
+        and p.id not in seen_ids
+        and not any(same_name(p.name, name) for _, name in visited)
+    ]
+    # Hard letters (X, Q…) fall back to names that merely contain the letter (not counting the city, e.g. "Fairfax").
+    cands = [p for p in cands if first_letter(p.name) == letter] or [
+        p for p in cands if letter.lower() in _norm_name(p.name).replace(_norm_name(p.city), "")
+    ]
+    _fill_drive(cands)
+    cands = [p for p in cands if p.drive_min is not None and p.drive_min <= settings.ABC_MAX_DRIVE_MIN]
+    # One location per chain (the closest), keyed on the first two words of the name.
+    nearest: dict[str, Place] = {}
+    for p in sorted(cands, key=lambda p: p.drive_min):
+        key = " ".join(re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKD", p.name).lower().removeprefix("the "))[:2])
+        nearest.setdefault(key, p)
+    return sorted(nearest.values(), key=lambda p: -p.score())[:limit]
+
+
+def lookup(query: str) -> Optional[Place]:
+    """Best text-search match for a free-form "name, area" query (used to link existing entries)."""
+    if not enabled():
+        return None
+    found = _fetch_text(query, 1)
+    if found:
+        with _lock:
+            _places[found[0].id] = (time.monotonic() + settings.PLACES_CACHE_TTL, found[0])
+    return found[0] if found else None

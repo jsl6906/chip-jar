@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %}Restaurant ABC · ChipJar{% endblock %}
+{% block content %}
+<div class="abc-shell" hx-target="#abcPanel" hx-swap="outerHTML">
+  {% include 'partials/abc_panel.html' %}
+</div>
+{% endblock %}

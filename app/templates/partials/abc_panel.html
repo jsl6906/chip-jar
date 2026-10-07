@@ -1,0 +1,121 @@
+{# expects: rounds, round_no, round_name, is_active, current, tiles, done_count, letter, visit, others, form, stats, places_enabled, partial, toast? #}
+<div id="abcPanel" class="abc">
+  {% if toast and partial %}<div hx-swap-oob="beforeend:#toasts">{% include 'partials/toast.html' %}</div>{% endif %}
+
+  <div class="ledger-card abc-head">
+    <div class="ledger-id">
+      <div class="spinner-emoji" aria-hidden="true">🔤</div>
+      <div class="ledger-who">
+        <h1 class="ledger-name">Restaurant ABC</h1>
+        <div class="ledger-sub">
+          <strong>{{ done_count }}</strong> of 26 letters · {{ round_name|lower }} time through
+          {% if stats.count %} · {{ stats.count }} restaurant{{ '' if stats.count == 1 else 's' }}{% if stats.avg %} · avg ★ {{ '%.1f'|format(stats.avg) }}{% endif %}{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="abc-progress" role="progressbar" aria-label="{{ round_name }} round progress" aria-valuemin="0" aria-valuemax="26" aria-valuenow="{{ done_count }}">
+      <span style="width: {{ '%.1f'|format(done_count / 26 * 100) }}%;"></span>
+    </div>
+    {% if rounds|length > 1 %}
+    <nav class="tabs" aria-label="Rounds">
+      {% for r in rounds %}
+      <a href="/abc?round={{ r.no }}" hx-get="/abc?round={{ r.no }}" hx-push-url="true" {% if r.no == round_no %}aria-current="page"{% endif %}
+         {% if r.new %}title="Start another trip through the alphabet"{% endif %}>
+        {% if r.new %}+ {% endif %}{{ r.name }}{% if not r.new %} <span class="tab-count">{{ r.done }}/26</span>{% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+    {% if stats.favorites %}<p class="abc-favs">★★★★★ {{ stats.favorites|join(', ') }}</p>{% endif %}
+  </div>
+
+  <div class="abc-layout">
+    <section class="card abc-letter" aria-labelledby="abcLetterHead">
+      <div class="abc-letter-head">
+        <div class="abc-big{{ ' done' if visit }}" aria-hidden="true">{{ letter }}</div>
+        <div class="abc-letter-title">
+          <div class="winner-kicker">{% if visit %}Done{% elif is_active and letter == current %}Up next{% else %}{{ round_name }} round{% endif %}</div>
+          <h2 id="abcLetterHead">{% if visit %}{{ letter }} is for {{ visit.name }}{% else %}A restaurant starting with {{ letter }}{% endif %}</h2>
+          {% if visit %}
+          <div class="hint">
+            {% if visit.rating %}<span class="stars">{{ '★' * visit.rating }}</span><span class="stars-off">{{ '★' * (5 - visit.rating) }}</span> · {% endif %}
+            {% if visit.location %}{{ visit.location }} · {% endif %}
+            {% if visit.visited_on %}{{ visit.visited_on.strftime('%b') }} {{ visit.visited_on.day }}, {{ visit.visited_on.year }} · {% endif %}
+            <a href="{{ visit.maps_url }}" target="_blank" rel="noopener">Map ↗</a>
+          </div>
+          {% endif %}
+          {% for o in others %}
+          <div class="hint">{{ o.round_no|round_name }} round: <strong>{{ o.name }}</strong>{% if o.rating %} {{ '★' * o.rating }}{% endif %}</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% if not visit %}
+      <div id="abcIdeas" class="abc-ideas" hx-get="/abc/ideas?letter={{ letter }}" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+        {% if places_enabled %}<p class="hint abc-loading">Finding {{ letter }} restaurants nearby…</p>{% endif %}
+      </div>
+      {% endif %}
+
+      <form id="abcForm" class="abc-form" method="post" action="/abc/visit" hx-post="/abc/visit">
+        <h3 class="picks-head">{{ 'Edit our visit' if visit else 'Log our visit' }}</h3>
+        {% if visit %}<input type="hidden" name="visit_id" value="{{ visit.id }}" />{% endif %}
+        <input type="hidden" name="round_no" value="{{ round_no }}" />
+        <input type="hidden" name="letter" value="{{ letter }}" />
+        <input type="hidden" name="place_id" value="{{ form.place_id or '' }}" />
+        <div class="fields two">
+          <label class="field"><span class="lbl">Restaurant</span>
+            <input type="text" name="name" maxlength="80" required autocomplete="off" value="{{ form.name or '' }}" placeholder="{{ letter }}…" />
+          </label>
+          <label class="field"><span class="lbl">Where</span>
+            <input type="text" name="location" maxlength="60" autocomplete="off" value="{{ form.location or '' }}" placeholder="Old Town, DC…" />
+          </label>
+        </div>
+        <div class="fields abc-form-row">
+          <label class="field"><span class="lbl">Date</span>
+            <input type="date" name="visited_on" value="{{ form.visited_on.isoformat() if form.visited_on else '' }}" />
+          </label>
+          <fieldset class="field">
+            <legend class="lbl">Rating</legend>
+            <div class="star-input">
+              {% for n in [5, 4, 3, 2, 1] %}
+              <input type="radio" id="abcStar{{ n }}" name="rating" value="{{ n }}" {% if form.rating == n %}checked{% endif %} />
+              <label for="abcStar{{ n }}" title="{{ n }} star{{ '' if n == 1 else 's' }}"><span class="visually-hidden">{{ n }} star{{ '' if n == 1 else 's' }}</span>★</label>
+              {% endfor %}
+            </div>
+          </fieldset>
+        </div>
+        <label class="field"><span class="lbl">Notes</span>
+          <textarea name="notes" rows="2" maxlength="500" placeholder="What we ordered, who loved it, go back for…">{{ form.notes or '' }}</textarea>
+        </label>
+        <div class="actions">
+          {% if visit %}
+          <button type="submit" class="btn-link danger" formaction="/abc/visit/{{ visit.id }}/delete" formnovalidate
+                  hx-post="/abc/visit/{{ visit.id }}/delete" hx-confirm="Remove {{ visit.name }} from {{ letter }}?">Remove</button>
+          {% endif %}
+          <button type="submit" class="btn btn-primary">{{ 'Save' if visit else 'Log ' ~ letter }}</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card abc-board" aria-labelledby="abcBoardHead">
+      <h2 id="abcBoardHead" class="picks-head">{{ round_name }} time through</h2>
+      <ol class="abc-tiles">
+        {% for t in tiles %}
+        <li>
+          <a class="abc-tile{{ ' done' if t.visit }}{{ ' current' if t.current }}" href="/abc?round={{ round_no }}&letter={{ t.letter }}"
+             hx-get="/abc?round={{ round_no }}&letter={{ t.letter }}" hx-push-url="true" {% if t.letter == letter %}aria-current="true"{% endif %}>
+            <span class="abc-tile-letter">{{ t.letter }}</span>
+            {% if t.visit %}
+            <span class="abc-tile-name">{{ t.visit.name }}</span>
+            {% if t.visit.rating %}<span class="abc-tile-meta"><span class="stars">{{ '★' * t.visit.rating }}</span><span class="stars-off">{{ '★' * (5 - t.visit.rating) }}</span></span>{% endif %}
+            {% if t.visit.location %}<span class="abc-tile-meta">{{ t.visit.location }}</span>{% endif %}
+            {% elif t.current %}
+            <span class="abc-tile-meta">Up next</span>
+            {% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+  </div>
+</div>

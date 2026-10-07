@@ -45,3 +45,8 @@ RESTAURANT_MAX_DRIVE_MIN: int = int(os.environ.get("RESTAURANT_MAX_DRIVE_MIN", "
 # Nearby Search returns at most 20 places, so keep the circle close to the drive limit (~0.5 km per minute).
 PLACES_SEARCH_RADIUS_M: int = int(os.environ.get("PLACES_SEARCH_RADIUS_M", str(RESTAURANT_MAX_DRIVE_MIN * 500)))
 PLACES_CACHE_TTL: int = int(os.environ.get("PLACES_CACHE_TTL", "86400"))
+
+# Restaurant ABC suggestions roam further than the dinner spinner (it's a planned outing).
+ABC_MAX_DRIVE_MIN: int = int(os.environ.get("ABC_MAX_DRIVE_MIN", "35"))
+ABC_SEARCH_RADIUS_M: int = min(50000, int(os.environ.get("ABC_SEARCH_RADIUS_M", "25000")))
+ABC_POOL_TTL: int = int(os.environ.get("ABC_POOL_TTL", str(7 * 86400)))

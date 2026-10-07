@@ -1,0 +1,16 @@
+{# expects: letter, places, q, places_enabled, max_drive #}
+{% if not places_enabled %}
+<p class="hint">Set <code>GOOGLE_MAPS_API_KEY</code>, <code>HOME_LAT</code> and <code>HOME_LNG</code> to get {{ letter }} restaurant ideas here.</p>
+{% else %}
+<div class="abc-ideas-head">
+  <h3 class="picks-head">Ideas for {{ letter }}</h3>
+  <span class="hint">Within {{ max_drive }} min · places you've been are skipped</span>
+</div>
+<form class="picker-search" method="get" action="/abc/ideas" hx-get="/abc/ideas" hx-target="#abcIdeaGrid" hx-swap="outerHTML" hx-sync="this:replace" role="search">
+  <input type="hidden" name="letter" value="{{ letter }}" />
+  <input type="hidden" name="grid" value="1" />
+  <input type="search" name="q" value="{{ q }}" autocomplete="off" placeholder="Search a cuisine or name (e.g. {{ letter }}… pizza)" aria-label="Search for {{ letter }} restaurants" />
+  <button type="submit" class="preset">Search</button>
+</form>
+{% include 'partials/abc_idea_grid.html' %}
+{% endif %}

@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -274,7 +275,7 @@ def health_check():
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "database": "connected",
             "members_count": member_count,
-            "version": "0.4.0",
+            "version": "0.5.0",
         }
     )
 
@@ -893,6 +894,157 @@ def jellyfin_image(item_id: str):
         raise HTTPException(status_code=404)
     data, content_type = img
     return Response(content=data, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+
+
+# --- restaurant ABC ------------------------------------------------------------
+
+ABC_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+ROUND_NAMES = ("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth")
+
+
+def _round_name(n: int) -> str:
+    return ROUND_NAMES[n - 1] if 1 <= n <= len(ROUND_NAMES) else f"Round {n}"
+
+
+templates.env.filters["round_name"] = _round_name
+
+
+def _abc_letter(raw: Optional[str]) -> Optional[str]:
+    letter = (raw or "").strip().upper()
+    return letter if len(letter) == 1 and letter in ABC_LETTERS else None
+
+
+def _abc_maps_url(v: dict) -> str:
+    params = {"api": "1", "query": " ".join(filter(None, [v["name"], v.get("location")]))}
+    if v.get("place_id"):
+        params.update(query=v["name"], query_place_id=v["place_id"])
+    return "https://www.google.com/maps/search/?" + urlencode(params, quote_via=quote)
+
+
+def _render_abc(request: Request, round_no: Optional[int] = None, letter: Optional[str] = None, toast: Optional[dict] = None):
+    if request.method != "GET" and not _is_partial(request):
+        return RedirectResponse(f"/abc?round={round_no or ''}&letter={letter or ''}", status_code=303)
+    visits = db.abc_visits()
+    by_round: dict[int, dict[str, dict]] = {}
+    for v in visits:
+        v["maps_url"] = _abc_maps_url(v)
+        by_round.setdefault(v["round_no"], {})[v["letter"]] = v
+    # The active round is the first one with letters left; "up next" is its first open letter.
+    active = 1
+    while len(by_round.get(active, {})) == len(ABC_LETTERS):
+        active += 1
+    current = next(c for c in ABC_LETTERS if c not in by_round.get(active, {}))
+    last_round = max([active, *by_round])
+    if not round_no or not 1 <= round_no <= last_round + 1:
+        round_no = active
+    done = by_round.get(round_no, {})
+    letter = letter or (current if round_no == active else next((c for c in ABC_LETTERS if c not in done), "A"))
+    visit = done.get(letter)
+    rated = [v["rating"] for v in visits if v["rating"]]
+    rounds = [{"no": n, "name": _round_name(n), "done": len(by_round.get(n, {})), "new": False} for n in range(1, last_round + 1)]
+    if by_round.get(last_round) or round_no == last_round + 1:
+        rounds.append({"no": last_round + 1, "name": _round_name(last_round + 1), "done": 0, "new": True})
+    ctx = {
+        "rounds": rounds,
+        "round_no": round_no,
+        "round_name": _round_name(round_no),
+        "is_active": round_no == active,
+        "current": current,
+        "tiles": [{"letter": c, "visit": done.get(c), "current": round_no == active and c == current} for c in ABC_LETTERS],
+        "done_count": len(done),
+        "letter": letter,
+        "visit": visit,
+        "others": [v for v in visits if v["letter"] == letter and v["round_no"] != round_no],
+        "form": visit or {"visited_on": datetime.now(settings.LOCAL_TZ).date()},
+        "stats": {
+            "count": len(visits),
+            "avg": sum(rated) / len(rated) if rated else None,
+            "favorites": [v["name"] for v in visits if v["rating"] == 5],
+        },
+        "places_enabled": places.enabled(),
+        "toast": toast,
+        "partial": _is_partial(request),
+    }
+    name = "partials/abc_panel.html" if _is_partial(request) else "abc.html"
+    return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
+@app.get("/abc", response_class=HTMLResponse)
+def abc_show(request: Request, round: Optional[str] = None, letter: Optional[str] = None):
+    round_no = int(round) if round and round.isdigit() else None
+    return _render_abc(request, round_no, _abc_letter(letter))
+
+
+@app.get("/abc/ideas", response_class=HTMLResponse)
+def abc_ideas(request: Request, letter: str, q: str = "", grid: str = ""):
+    letter = _abc_letter(letter)
+    if letter is None:
+        raise HTTPException(status_code=404, detail="Unknown letter")
+    visited = [(v["place_id"], v["name"]) for v in db.abc_visits()]
+    found = places.abc_suggestions(letter, q=q, visited=visited) if places.enabled() else []
+    ctx = {
+        "letter": letter,
+        "places": found,
+        "loose": bool(found) and places.first_letter(found[0].name) != letter,
+        "q": q.strip()[:80],
+        "places_enabled": places.enabled(),
+        "max_drive": settings.ABC_MAX_DRIVE_MIN,
+    }
+    name = "partials/abc_idea_grid.html" if grid == "1" else "partials/abc_ideas.html"
+    return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
+@app.post("/abc/visit")
+def abc_save(
+    request: Request,
+    letter: str = Form(...),
+    name: str = Form(...),
+    round_no: int = Form(1),
+    visit_id: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
+    rating: Optional[str] = Form(None),
+    visited_on: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    place_id: Optional[str] = Form(None),
+):
+    letter = _abc_letter(letter)
+    name = name.strip()[:80]
+    if letter is None or not name or not 1 <= round_no <= 99:
+        raise HTTPException(status_code=400, detail="Letter, round and name are required")
+    try:
+        day = date.fromisoformat(visited_on) if visited_on else None
+    except ValueError:
+        day = None
+    pid = (place_id or "").strip()
+    v = {
+        "round_no": round_no,
+        "letter": letter,
+        "name": name,
+        "location": (location or "").strip()[:60] or None,
+        "rating": int(rating) if rating and rating.isdigit() and 1 <= int(rating) <= 5 else None,
+        "visited_on": day,
+        "notes": (notes or "").strip()[:500] or None,
+        "place_id": pid if places.valid_place_id(pid) else None,
+    }
+    vid = int(visit_id) if visit_id and visit_id.isdigit() else None
+    if db.save_abc_visit(vid, v) is None:
+        toast = {"kind": "error", "title": f"{letter} already has a restaurant in the {_round_name(round_no).lower()} round", "detail": "", "sub": "Edit that one, or log this under another round."}
+        return _render_abc(request, round_no, letter, toast)
+    logger.info("ABC %s round %s -> %r (id=%s)", letter, round_no, name, vid or "new")
+    stars = "★" * v["rating"] if v["rating"] else ""
+    toast = {"kind": "success", "title": f"{letter} is for {name}", "detail": stars, "sub": "" if vid else "On to the next letter!"}
+    # New visits move on to the next open letter; edits stay put.
+    return _render_abc(request, round_no, letter if vid else None, toast)
+
+
+@app.post("/abc/visit/{visit_id}/delete")
+def abc_delete(request: Request, visit_id: int):
+    row = db.delete_abc_visit(visit_id)
+    logger.info("Deleted ABC visit %s, found=%s", visit_id, row is not None)
+    if row is None:
+        return _render_abc(request, toast={"kind": "error", "title": "Couldn't remove that visit", "detail": "", "sub": ""})
+    toast = {"kind": "success", "title": f"Removed {row['name']}", "detail": "", "sub": ""}
+    return _render_abc(request, row["round_no"], row["letter"], toast)
 
 
 def run(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):

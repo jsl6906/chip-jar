@@ -350,4 +350,30 @@
     const dlg = document.getElementById('moviePicker');
     if (dlg?.open && e.detail.successful && e.target.closest?.('.movie, .place')) dlg.close();
   });
+
+  // ---- Restaurant ABC ------------------------------------------------------
+  // "Choose" on an idea fills the log form; typing a different name unlinks the Google place.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-abc-fill]');
+    const form = document.getElementById('abcForm');
+    if (!btn || !form) return;
+    const data = JSON.parse(btn.dataset.abcFill);
+    for (const [key, value] of Object.entries(data)) {
+      if (form.elements[key]) form.elements[key].value = value || '';
+    }
+    form.classList.remove('is-filled');
+    void form.offsetWidth;
+    form.classList.add('is-filled');
+    form.scrollIntoView({ behavior: reduced.matches ? 'auto' : 'smooth', block: 'center' });
+    form.elements.visited_on?.focus({ preventScroll: true });
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.matches?.('#abcForm [name=name]')) e.target.form.elements.place_id.value = '';
+  });
+  // After picking a letter far down the board (or logging one), bring the letter card back into view.
+  document.body.addEventListener('htmx:afterSettle', (e) => {
+    if (e.detail.target?.id !== 'abcPanel') return;
+    const card = document.querySelector('.abc-letter');
+    if (card && card.getBoundingClientRect().top < 0) card.scrollIntoView({ behavior: reduced.matches ? 'auto' : 'smooth', block: 'start' });
+  });
 })();
