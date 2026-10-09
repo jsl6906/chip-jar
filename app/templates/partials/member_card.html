@@ -1,9 +1,9 @@
 {# expects: m (dashboard entry) #}
 <article class="member-card" id="member-{{ m.id }}" style="--member-color: {{ m.color }};"{% if oob %} hx-swap-oob="true"{% endif %}>
   <div class="member-head">
-    <div class="avatar" aria-hidden="true">{{ m.name[:1]|upper }}</div>
+    <a class="avatar" href="/report/incentives/{{ m.id }}" tabindex="-1" aria-hidden="true">{{ m.name[:1]|upper }}</a>
     <div>
-      <div class="member-name">{{ m.name }}</div>
+      <a class="member-name" href="/report/incentives/{{ m.id }}">{{ m.name }}</a>
       <div class="member-last">
         {% if m.last %}
           {% set a = m.last.amount %}

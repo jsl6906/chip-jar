@@ -150,7 +150,7 @@
     {% set more_url = base_url ~ '?limit=' ~ (limit * 2) ~ ('&period=' ~ period if tab == 'medication' else '') %}
     <a class="btn btn-ghost" href="{{ more_url }}" hx-get="{{ more_url }}" hx-push-url="true">Show more</a>
     {% endif %}
-    <p class="hint"><span class="hint-touch">Swipe an entry left to delete it.</span><span class="hint-pointer">Hover an entry to delete it.</span></p>
+    <p class="hint"><span class="hint-touch">Swipe an entry left, or press and hold it, to delete it.</span><span class="hint-pointer">Hover an entry to delete it.</span></p>
   </div>
   {% else %}
   <div class="card empty">

@@ -5,7 +5,7 @@
 <section class="section" aria-labelledby="famHead">
   <div class="section-head">
     <h2 id="famHead">The family</h2>
-    <span class="hint">Tap a balance to see its ledger</span>
+    <span class="hint">Tap a name or balance to see its ledger</span>
   </div>
   {% if dashboard %}
   <div class="dashboard">
@@ -61,13 +61,6 @@
           <input type="text" name="activity_type" placeholder="What was it for?" autocomplete="off" required />
         </label>
       </div>
-      {% if chip_presets %}
-      <div class="presets" aria-label="Amounts">
-        {% for pts in chip_presets %}
-        <button type="button" class="preset {{ 'pos' if pts > 0 else 'neg' }}" data-amount="{{ pts }}">{{ pts|fmt_signed }}</button>
-        {% endfor %}
-      </div>
-      {% endif %}
     </div>
 
     <div class="cat-panel" data-cat="allowance" hidden>

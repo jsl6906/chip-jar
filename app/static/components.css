@@ -50,6 +50,8 @@
 }
 .avatar.sm { width: 32px; height: 32px; font-size: var(--fs-md); }
 .member-name { font-family: var(--font-display); font-weight: 800; font-size: var(--fs-lg); }
+a.member-name { display: block; color: inherit; }
+a.avatar:hover { text-decoration: none; }
 .member-last { font-size: var(--fs-xs); color: var(--text-muted); }
 .member-last .delta { font-weight: 800; }
 .member-last .delta.pos { color: var(--gain); }
@@ -322,7 +324,9 @@
 	grid-template-columns: 3.6rem minmax(0, 1fr) auto;
 	min-height: 54px; padding: 0.6rem var(--sp-4); background: var(--surface);
 	touch-action: pan-y; transition: transform var(--dur-slow) var(--ease);
+	-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
 }
+.entry-main.is-pressing { background: color-mix(in srgb, var(--loss) 10%, var(--surface)); transition: background 450ms var(--ease); }
 .ledger.money .entry-main { grid-template-columns: 3.6rem minmax(0, 1fr) auto 4.2rem; }
 .entry-time { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); white-space: nowrap; }
 .entry-what { display: grid; min-width: 0; }

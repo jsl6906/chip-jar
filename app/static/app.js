@@ -105,6 +105,44 @@
   document.addEventListener('pointerup', endSwipe);
   document.addEventListener('pointercancel', endSwipe);
 
+  // Press-and-hold an entry (touch/pen) to delete it, with a confirm since holds can be accidental.
+  const HOLD_MS = 550;
+  let hold = null;
+  function cancelHold() {
+    if (!hold) return;
+    clearTimeout(hold.timer);
+    hold.main.classList.remove('is-pressing');
+    hold = null;
+  }
+  function holdFire() {
+    if (!hold) return;
+    const entry = hold.main.closest('.entry');
+    const title = entry?.querySelector('.entry-title')?.textContent.trim() || 'this entry';
+    cancelHold();
+    swipe = null;
+    navigator.vibrate?.(30);
+    if (confirm(`Delete "${title}"?`)) entry?.querySelector('.entry-delete')?.requestSubmit();
+  }
+  document.addEventListener('pointerdown', (e) => {
+    cancelHold();
+    if (e.pointerType === 'mouse') return;
+    const main = e.target.closest('.entry-main');
+    if (!main) return;
+    main.classList.add('is-pressing');
+    hold = { main, x0: e.clientX, y0: e.clientY, timer: setTimeout(holdFire, HOLD_MS) };
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (hold && Math.hypot(e.clientX - hold.x0, e.clientY - hold.y0) > 8) cancelHold();
+  });
+  document.addEventListener('pointerup', cancelHold);
+  document.addEventListener('pointercancel', cancelHold);
+  // Android signals a long press with contextmenu (sometimes before our timer); treat it the same.
+  document.addEventListener('contextmenu', (e) => {
+    if (!hold || !hold.main.contains(e.target)) return;
+    e.preventDefault();
+    holdFire();
+  });
+
   // ---- Quick-add form -----------------------------------------------------
   const form = document.getElementById('quickAdd');
   if (!form) return;

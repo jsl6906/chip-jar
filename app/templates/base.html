@@ -37,6 +37,7 @@
         <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Home</a>
         <a href="/spin" {% if request.url.path.startswith('/spin') %}aria-current="page"{% endif %}>Spin</a>
         <a href="/abc" {% if request.url.path.startswith('/abc') %}aria-current="page"{% endif %}>ABC</a>
+        {% if manage_enabled %}<a href="/manage" {% if request.url.path.startswith('/manage') %}aria-current="page"{% endif %}>Manage</a>{% endif %}
       </nav>
     </div>
   </header>

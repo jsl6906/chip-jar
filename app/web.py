@@ -43,6 +43,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 # Appended as ?v= to CSS/JS URLs so browsers pick up new assets after a deploy.
 templates.env.globals["asset_v"] = max(int(p.stat().st_mtime) for p in Path("app/static").iterdir() if p.is_file())
+templates.env.globals["manage_enabled"] = bool(settings.MANAGE_PASSWORD)
 
 
 @app.middleware("http")
@@ -353,13 +354,11 @@ def home(request: Request):
         selected_member = default_member if default_member in ids else (ids[0] if ids else None)
     default_cat = prefs["default_category"] if prefs["default_category"] in CATEGORY_LABELS else "incentive"
     selected_cat = q.get("cat") if q.get("cat") in CATEGORY_LABELS else default_cat
-    incentives = db.list_incentives()
     return templates.TemplateResponse(
         request=request,
         name="home.html",
         context={
             "dashboard": dashboard,
-            "chip_presets": sorted({pts for _, _, pts in incentives}, key=lambda p: (p < 0, abs(p))),
             "allowance_presets": _parse_presets(prefs["allowance_presets"]) or _parse_presets(db.SETTING_DEFAULTS["allowance_presets"]),
             "medications": db.list_medications(),
             "selected_member": selected_member,
@@ -673,10 +672,11 @@ def _spinner_ctx(spinner: dict, winner_idx: Optional[int] = None, result_id: Opt
     roster = db.list_household_members()
     color_by_member = {m["id"]: m["color"] for m in roster}
     picks = db.spinner_picks(spinner["id"])
-    pick_by_member = {p["member_id"]: p for p in picks}
+    picks_by_member: dict[int, list[dict]] = {}
     for p in picks:
         p["color"] = color_by_member.get(p["member_id"], db.MEMBER_COLORS[0])
-    members = [{**m, "pick": pick_by_member.get(m["id"])} for m in roster]
+        picks_by_member.setdefault(p["member_id"], []).append(p)
+    members = [{**m, "picks": picks_by_member.get(m["id"], [])} for m in roster]
     segments = _wheel_segments(picks)
     gradient = ", ".join(f"{s['color']} {s['start']:.3f}deg {s['end']:.3f}deg" for s in segments)
     history = db.spin_history(spinner["id"])
@@ -761,17 +761,15 @@ def spin_pick(
     if pid and not label:
         place = places.get(pid)
         label = place.name[:80] if place else ""
-    if not label:
-        db.clear_pick(spinner_id, member_id)
-    else:
-        db.set_pick(spinner_id, member_id, label, item_id, pid)
+    if label:
+        db.add_pick(spinner_id, member_id, label, item_id, pid)
     return _spinner_panel(request, spinner)
 
 
 @app.post("/spin/{spinner_id}/pick/clear")
-def spin_pick_clear(request: Request, spinner_id: int, member_id: int = Form(...)):
+def spin_pick_clear(request: Request, spinner_id: int, pick_id: int = Form(...)):
     spinner = _get_spinner_or_404(spinner_id)
-    db.clear_pick(spinner_id, member_id)
+    db.clear_pick(spinner_id, pick_id)
     return _spinner_panel(request, spinner)
 
 
@@ -785,7 +783,7 @@ def spin_pick_random(request: Request, spinner_id: int, member_id: int = Form(..
         if found:
             # Choose among the top few so it's a good spot, not just any spot.
             place = secrets.choice(found[:8])
-            db.set_pick(spinner_id, member_id, place.name[:80], None, place.id)
+            db.add_pick(spinner_id, member_id, place.name[:80], None, place.id)
         else:
             toast = {"kind": "error", "title": "No restaurant suggestions right now", "detail": "", "sub": "Check GOOGLE_MAPS_API_KEY / HOME_LAT / HOME_LNG."}
         return _spinner_panel(request, spinner, toast=toast)
@@ -794,7 +792,7 @@ def spin_pick_random(request: Request, spinner_id: int, member_id: int = Form(..
         found = jellyfin.search(kids=kids == "1", exclude=db.recent_movie_ids(), limit=1)
         movie = found[0] if found else None
     if movie:
-        db.set_pick(spinner_id, member_id, _movie_label(movie), movie.id)
+        db.add_pick(spinner_id, member_id, _movie_label(movie), movie.id)
     else:
         toast = {"kind": "error", "title": "No Jellyfin suggestions right now", "detail": "", "sub": "Check the JELLYFIN_* settings or try again later."}
     return _spinner_panel(request, spinner, toast=toast)

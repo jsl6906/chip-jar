@@ -486,47 +486,46 @@ def delete_spinner(spinner_id: int) -> bool:
 
 
 def spinner_picks(spinner_id: int) -> list[dict]:
-    """Current round's picks, one per member, in roster order (matches list_household_members)."""
+    """Current round's picks, interleaved by member (everyone's 1st, then 2nd, ...) in roster order."""
     with connection() as conn:
         rows = conn.execute(
             """--sql
-            SELECT p.household_member_id, hm.name, p.label, p.jellyfin_item_id, p.place_id
+            SELECT p.id, p.household_member_id, hm.name, p.label, p.jellyfin_item_id, p.place_id
             FROM spinner_pick p
             JOIN household_member hm ON hm.id = p.household_member_id
             WHERE p.spinner_id = %s
-            ORDER BY hm.sort_order, hm.name
+            ORDER BY row_number() OVER (PARTITION BY p.household_member_id ORDER BY p.id), hm.sort_order, hm.name
             """,
             [spinner_id],
         ).fetchall()
-    return [{"member_id": r[0], "member": r[1], "label": r[2], "jellyfin_item_id": r[3], "place_id": r[4]} for r in rows]
+    return [
+        {"id": r[0], "member_id": r[1], "member": r[2], "label": r[3], "jellyfin_item_id": r[4], "place_id": r[5]}
+        for r in rows
+    ]
 
 
-def set_pick(
+def add_pick(
     spinner_id: int,
     household_member_id: int,
     label: str,
     jellyfin_item_id: Optional[str] = None,
     place_id: Optional[str] = None,
 ) -> None:
+    """Add a pick; a repeat of the same member's label is ignored."""
     with connection() as conn:
         conn.execute(
             """--sql
             INSERT INTO spinner_pick (spinner_id, household_member_id, label, jellyfin_item_id, place_id)
             VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (spinner_id, household_member_id)
-            DO UPDATE SET label = EXCLUDED.label, jellyfin_item_id = EXCLUDED.jellyfin_item_id,
-                          place_id = EXCLUDED.place_id, updated_at = now()
+            ON CONFLICT DO NOTHING
             """,
             [spinner_id, household_member_id, label, jellyfin_item_id, place_id],
         )
 
 
-def clear_pick(spinner_id: int, household_member_id: int) -> None:
+def clear_pick(spinner_id: int, pick_id: int) -> None:
     with connection() as conn:
-        conn.execute(
-            "DELETE FROM spinner_pick WHERE spinner_id = %s AND household_member_id = %s",
-            [spinner_id, household_member_id],
-        )
+        conn.execute("DELETE FROM spinner_pick WHERE spinner_id = %s AND id = %s", [spinner_id, pick_id])
 
 
 def clear_picks(spinner_id: int) -> None:
