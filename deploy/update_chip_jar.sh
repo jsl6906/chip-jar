@@ -34,7 +34,8 @@ echo "[INFO] Loading $latest_tar"
 load_output="$(docker load -i "$latest_tar")"
 echo "$load_output"
 if [[ "$load_output" =~ Loaded\ image:\ ([^[:space:]]+) ]]; then
-  docker tag "${BASH_REMATCH[1]}" chip-jar:latest
+  new_image="${BASH_REMATCH[1]}"
+  docker tag "$new_image" chip-jar:latest
 else
   echo "[ERROR] Could not find the loaded image name" >&2
   exit 1
@@ -56,3 +57,15 @@ for _ in $(seq 1 30); do
 done
 docker ps --filter name=chip-jar --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
 docker logs --tail 15 chip-jar
+
+# Only drop older images once the new one is healthy, so a bad deploy can still be rolled back.
+if [[ "$status" == "healthy" ]]; then
+  old_images="$(docker images chip-jar --format '{{.Repository}}:{{.Tag}}' \
+    | grep -vxF -e chip-jar:latest -e "$new_image" || true)"
+  if [[ -n "$old_images" ]]; then
+    echo "[INFO] Removing old images:"; echo "$old_images"
+    echo "$old_images" | xargs -r docker rmi || echo "[WARN] Some old images could not be removed" >&2
+  fi
+else
+  echo "[WARN] chip-jar is '$status'; keeping older images for rollback" >&2
+fi

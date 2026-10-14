@@ -91,7 +91,7 @@ The share `\\MediaServer\Docker` is `/mnt/samsung_ssd/dockerconfig` on the serve
    bash /mnt/samsung_ssd/dockerconfig/chip-jar/update_chip_jar.sh
    ```
 
-   The script loads the newest tar, tags it `chip-jar:latest`, deletes older tars, runs `docker compose up -d --force-recreate chip-jar`, and waits for the container to report healthy.
+   The script loads the newest tar, tags it `chip-jar:latest`, deletes older tars, runs `docker compose up -d --force-recreate chip-jar`, and waits for the container to report healthy. Once it is healthy, the script removes older `chip-jar:<timestamp>` images. If the health check fails, it keeps them so you can roll back.
 
 Check with `docker logs -f chip-jar` or <http://mediaserver:8000/health>.
 
