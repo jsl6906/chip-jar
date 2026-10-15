@@ -1,0 +1,47 @@
+# Builds the repo's root Dockerfile and publishes it to ghcr.io/<owner>/<repo>.
+# Template: copy to .github/workflows/publish-image.yml in each app repo (ledger, chip-jar, health-expenses).
+# Release: git tag v1.2.3 && git push origin v1.2.3  -> ghcr.io/jsl6906/<repo>:1.2.3 (+ sha-<short>)
+# Then on the server: scripts/deploy_app.sh <service> 1.2.3
+# First publish only: GitHub -> Packages -> <repo> -> Package settings -> Change visibility -> Public
+name: Publish image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

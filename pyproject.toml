@@ -1,6 +1,6 @@
 [project]
 name = "chip-jar"
-version = "0.6.0"
+version = "1.0.0"
 description = "ChipJar: family chips/allowance/medication tracker + decision spinner + restaurant ABC (FastAPI + Azure PostgreSQL)"
 readme = "README.md"
 requires-python = ">=3.12"
