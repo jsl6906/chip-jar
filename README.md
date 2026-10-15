@@ -78,20 +78,18 @@ The container reads `DATABASE_URL` from `.env` via `env_file` and runs read-only
 The app runs as the `chip-jar` container in the main compose file on MediaServer, at <http://mediaserver:8000>.
 The share `\\MediaServer\Docker` is `/mnt/samsung_ssd/dockerconfig` on the server.
 
-1. Build the image and copy it to the share. This writes `\\MediaServer\Docker\chip-jar\container_files\chip-jar-<timestamp>.tar` and refreshes `update_chip_jar.sh`:
+1. Tag a release. The [publish-image workflow](.github/workflows/publish-image.yml) builds the image and pushes `ghcr.io/jsl6906/chip-jar:<version>`:
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File deploy\publish.ps1
+   ```bash
+   git tag v1.2.3 && git push origin v1.2.3
    ```
 
-2. On the server, load the image and recreate the container:
+2. On the server, deploy that version:
 
    ```bash
    ssh josh@mediaserver
-   bash /mnt/samsung_ssd/dockerconfig/chip-jar/update_chip_jar.sh
+   scripts/deploy_app.sh chip-jar 1.2.3
    ```
-
-   The script loads the newest tar, tags it `chip-jar:latest`, deletes older tars, runs `docker compose up -d --force-recreate chip-jar`, and waits for the container to report healthy. Once it is healthy, the script removes older `chip-jar:<timestamp>` images. If the health check fails, it keeps them so you can roll back.
 
 Check with `docker logs -f chip-jar` or <http://mediaserver:8000/health>.
 
@@ -100,15 +98,12 @@ Files on the server (`/mnt/samsung_ssd/dockerconfig/chip-jar/`):
 | Path | Purpose |
 |------|---------|
 | `.env` | `DATABASE_URL` for the `personal_tracking_app` role. Edited by hand, `chmod 600`. |
-| `container_files/` | Image tars from `publish.ps1`. |
-| `update_chip_jar.sh` | The update script (source: [deploy/update_chip_jar.sh](deploy/update_chip_jar.sh)). |
 
 The `chip-jar` service is defined in `/mnt/samsung_ssd/dockerconfig/docker-compose.yaml`. It is also listed in `RESTART_CONTAINERS` in `scripts/azure-pg-firewall.env` and has an entry in `dashboard/services.yaml`.
 
 Notes:
 
 - `.env` changes take effect only after the container is recreated; `docker restart` does not reload the env file.
-- `publish.ps1` saves the image locally and then copies it, because `docker save` written straight to the SMB share can produce an empty file.
 
 ## Environment Variables
 
@@ -131,7 +126,6 @@ app/
   web.py         # FastAPI app and routes
   templates/     # Jinja2 templates (+ partials/ for HTMX swaps)
   static/        # CSS, app.js, vendored htmx
-deploy/          # publish.ps1 (PC) + update_chip_jar.sh (server)
 sql/schema.sql   # Postgres DDL (idempotent)
 scripts/         # one-time DB bootstrap/migration tooling
 ```
